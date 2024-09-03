@@ -1,9 +1,9 @@
 import torch
-from _module_ import dataset
-from _module_ import optimizer
-from _module_ import network
-from _module_ import loss_func
-from _module_ import uitls
+from lx_module import dataset
+from lx_module import optimizer
+from lx_module import network
+from lx_module import loss_func
+from lx_module import uitls
 
 
 def train_epoch(net, train_iter, loss, updater):
