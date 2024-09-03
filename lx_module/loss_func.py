@@ -19,6 +19,10 @@ class loss_squared_custom(object):
         return (y_hat - y.reshape(y_hat.shape)) ** 2 / 2
 
 
+def loss_cross_entropy():
+    return torch.nn.CrossEntropyLoss()
+
+
 class loss_cross_entropy_custom(object):
     def __call__(self, y_hat, y):
         """损失函数: 交叉熵损失的自定义实现"""

@@ -12,7 +12,7 @@ def train_epoch(net, train_iter, loss, updater):
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
     if isinstance(net, torch.nn.Module):
-        net.train()  # 将模型设置为训练模式
+        net.train()  # 如果是 nn 模型, 将模型设置为训练模式
     for X, y in train_iter:
         y_hat = net(X)  # 计算梯度并更新参数
         l = loss(y_hat, y)
@@ -20,11 +20,13 @@ def train_epoch(net, train_iter, loss, updater):
             updater.zero_grad()
             l.mean().backward()
             updater.step()
+            loss_sum += float(l) * len(y)
+            num_samples += y.size().numel()
         else:  # 使用定制的优化器和损失函数
             l.sum().backward()
             updater(X.shape[0])
-        loss_sum += float(l.sum())
-        num_samples += y.numel()
+            loss_sum += float(l.sum())
+            num_samples += y.numel()
         num_accuracy += uitls.accuracy(y_hat, y)
     # 返回训练损失和训练精度
     return loss_sum / num_samples, num_accuracy / num_samples
@@ -49,15 +51,27 @@ def main():
     net = network.net_softmax_regression_custom(image_width, image_height, num_classes)
     opt = optimizer.opt_sgd_custom(net.parameters(), lr)
     loss = loss_func.loss_cross_entropy_custom()
-
-    for epoch in range(num_epochs):
+    for ep in range(1, num_epochs + 1):
         train_loss, train_acc = train_epoch(net, train_iter, loss, opt)
         test_acc = uitls.evaluate_accuracy(net, test_iter)
-        print(
-            f"[lx] epoch {epoch + 1:>2}, train_loss: {train_loss:.6f}, train_acc: {train_acc:.6f}, test_acc: {test_acc:.6f}"
-        )
+        print(f"[custom] epoch {ep:>3}, loss: {train_loss:.4f}, train_acc: {train_acc:.4f}, test_acc: {test_acc:.4f}")
+    train_acc = uitls.evaluate_accuracy(net, train_iter)
+    test_acc = uitls.evaluate_accuracy(net, test_iter)
+    print(f"[custom] Training completed, train accuracy: {train_acc:.4f}, test accuracy: {test_acc:.4f}\n\n")
+    data.gen_preview_image(save_path="./custom.jpg", net=net)
 
-    data.gen_preview_image(net=net)
+    ### >>> 使用 torch API 训练模型 <<< ################################
+    net = network.net_softmax_regression(image_width, image_height, num_classes)
+    opt = optimizer.opt_sgd(net.parameters(), lr)
+    loss = loss_func.loss_cross_entropy()
+    for ep in range(1, num_epochs + 1):
+        train_loss, train_acc = train_epoch(net, train_iter, loss, opt)
+        test_acc = uitls.evaluate_accuracy(net, test_iter)
+        print(f"[torch] epoch {ep:>3}, loss: {train_loss:.4f}, train_acc: {train_acc:.4f}, test_acc: {test_acc:.4f}")
+    train_acc = uitls.evaluate_accuracy(net, train_iter)
+    test_acc = uitls.evaluate_accuracy(net, test_iter)
+    print(f"[torch] Training completed, train accuracy: {train_acc:.4f}, test accuracy: {test_acc:.4f}\n\n")
+    data.gen_preview_image(save_path="./torch.jpg", net=net)
 
 
 if __name__ == "__main__":

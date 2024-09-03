@@ -33,6 +33,16 @@ class net_linear_regression_custom(object):
         return torch.matmul(X, self.w) + self.b
 
 
+def net_softmax_regression(img_width, img_height, num_classes):
+    # 第一层: Flatten 展平层. 用于将原始图像(三维)展平为向量(一维)
+    # 第二层: Linear 全连接层. 带参数需要训练的一个层
+    net = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(img_width * img_height, num_classes))
+    # lambda表达式: 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
+    init_weights = lambda m: torch.nn.init.normal_(m.weight, std=0.01) if isinstance(m, torch.nn.Linear) else None
+    net.apply(init_weights)
+    return net
+
+
 def softmax(X):
     """softmax 函数
     1. 对每个项求幂 (使用exp)
@@ -60,6 +70,7 @@ class net_softmax_regression_custom(object):
             img_height (int): 输入图片高度, 决定权重参数数量
             num_classes (int): 类别总数, 决定输出维度和偏移参数数量
         """
+        # 权重 w 使用高斯分布(均值0方差0.01) 初始化为随机值, 偏差 b 初始化为 0
         self.w = torch.normal(0, 0.01, size=(img_width * img_height, num_classes), requires_grad=True)
         self.b = torch.zeros(num_classes, requires_grad=True)
 
@@ -67,6 +78,6 @@ class net_softmax_regression_custom(object):
         return [self.w, self.b]
 
     def __call__(self, X):
-        temp = X.reshape((-1, self.w.shape[0]))  # 将原始图像(三维)展平为向量(一维)
-        temp = torch.matmul(temp, self.w) + self.b  # 全连接计算
+        temp = X.reshape((-1, self.w.shape[0]))  # 第一层: Flatten 展平层. 用于将原始图像(三维)展平为向量(一维)
+        temp = torch.matmul(temp, self.w) + self.b  # 第二层: Linear 全连接层. 带参数需要训练的一个层
         return softmax(temp)  # softmax 计算
