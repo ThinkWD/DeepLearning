@@ -34,24 +34,21 @@ class net_linear_regression_custom(object):
 
 
 def net_softmax_regression(img_width, img_height, num_classes):
-    # 第一层: Flatten 展平层. 用于将原始图像(三维)展平为向量(一维)
-    # 第二层: Linear 全连接层. 带参数需要训练的一个层
-    net = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(img_width * img_height, num_classes))
-    # lambda表达式: 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
+    """网络结构: softmax 回归模型
+    Args:
+        img_width (int): 输入图片宽度, 决定权重参数数量
+        img_height (int): 输入图片高度, 决定权重参数数量
+        num_classes (int): 类别总数, 决定输出维度和偏移参数数量
+    """
+    net = torch.nn.Sequential(
+        torch.nn.Flatten(),  # 第一层: Flatten 展平层. 用于将原始图像(三维)展平为向量(一维)
+        torch.nn.Linear(img_width * img_height, num_classes),  # 第二层: Linear 全连接层
+        # 第三层: softmax 层. 它没有显式的定义在网络结构中, 是因为 CrossEntropyLoss 中已经包含了 softmax 不要重复定义
+    )
+    # 参数初始化函数(lambda): 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
     init_weights = lambda m: torch.nn.init.normal_(m.weight, std=0.01) if isinstance(m, torch.nn.Linear) else None
     net.apply(init_weights)
     return net
-
-
-def softmax(X):
-    """softmax 函数
-    1. 对每个项求幂 (使用exp)
-    2. 对每一行求和得到每个样本的规范化常数
-    3. 将每一行除以其规范化常数, 确保结果的和为 1
-    """
-    X_exp = torch.exp(X)
-    partition = X_exp.sum(1, keepdim=True)
-    return X_exp / partition  # (广播机制)
 
 
 class net_softmax_regression_custom(object):
@@ -77,7 +74,17 @@ class net_softmax_regression_custom(object):
     def parameters(self):
         return [self.w, self.b]
 
+    def softmax(self, X):
+        """softmax 函数
+        1. 对每个项求幂 (使用exp)
+        2. 对每一行求和得到每个样本的规范化常数
+        3. 将每一行除以其规范化常数, 确保结果的和为 1
+        """
+        X_exp = torch.exp(X)
+        partition = X_exp.sum(1, keepdim=True)
+        return X_exp / partition  # (广播机制)
+
     def __call__(self, X):
         temp = X.reshape((-1, self.w.shape[0]))  # 第一层: Flatten 展平层. 用于将原始图像(三维)展平为向量(一维)
-        temp = torch.matmul(temp, self.w) + self.b  # 第二层: Linear 全连接层. 带参数需要训练的一个层
-        return softmax(temp)  # softmax 计算
+        temp = torch.matmul(temp, self.w) + self.b  # 第二层: Linear 全连接层
+        return self.softmax(temp)  # 第三层: softmax 层, 将预测值转为类别标签

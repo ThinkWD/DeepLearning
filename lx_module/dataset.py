@@ -78,13 +78,6 @@ class Dataset_FashionMNIST(object):
         # 通过内置函数下载数据集到 save_path 目录下
         self.train = torchvision.datasets.FashionMNIST(root=save_path, train=True, transform=transforms, download=True)
         self.test = torchvision.datasets.FashionMNIST(root=save_path, train=False, transform=transforms, download=True)
-        # 数据集组织方式:
-        # print(f"mnist_train length: {len(self.train)}")
-        # print(f"mnist_test length: {len(self.test)}")
-        # print(f"first image shape: {self.test[0][0].shape}")
-        # print(f"first label index: {self.test[0][1]}")
-        # print(f"second image shape: {self.test[1][0].shape}")
-        # print(f"second label index: {self.test[1][1]}")
 
     def get_iter(self, batch_size, num_workers):
         train = torch.utils.data.DataLoader(self.train, batch_size, shuffle=True, num_workers=num_workers)

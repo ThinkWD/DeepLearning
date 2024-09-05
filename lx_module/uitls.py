@@ -13,7 +13,7 @@ def accuracy(y_hat, y):
 def evaluate_accuracy(net, data_iter):
     """计算在指定数据集上模型的准确率"""
     if isinstance(net, torch.nn.Module):
-        net.eval()  # 将模型设置为评估模式
+        net.eval()  # 将模型设置为评估模式 评估模式不会执行计算梯度的操作, 性能会好一点
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
     with torch.no_grad():

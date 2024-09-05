@@ -20,6 +20,7 @@ class loss_squared_custom(object):
 
 
 def loss_cross_entropy():
+    '''CrossEntropyLoss 中包含了 softmax 操作, 不需要在网络结构中重复定义'''
     return torch.nn.CrossEntropyLoss()
 
 
