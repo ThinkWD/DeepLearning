@@ -33,23 +33,23 @@ def train_epoch(net, train_iter, loss, updater):
 
 
 def main():
-    ### >>> 初始化数据集 <<< ###########################################
-    batch_size = 64
-    num_workers = 8
-    image_width = 28
-    image_height = 28
-    num_classes = 10
+    ### >>> 初始化数据集和超参数 <<< ###########################################
+    learn_rate = 0.1  # 训练的学习率
+    batch_size = 64  # 训练的批大小 (一次读取的数据数量)
+    num_epochs = 10  # 训练遍历数据集的次数
+    num_workers = 8  # 加载数据集使用的工作线程数
     data = dataset.Dataset_FashionMNIST()
     train_iter, test_iter = data.get_iter(batch_size, num_workers)
 
-    ### >>> 设置超参数 <<< ###########################################
-    lr = 0.1
-    num_epochs = 10
-    batch_size = 10
+    ### >>> 确定模型结构和超参数 <<< ###########################################
+    image_width = 28
+    image_height = 28
+    num_inputs = image_width * image_height  # 输入特征向量长度, 由数据集决定
+    num_classes = 10  # 输出类别数量, 由数据集决定
 
     ### >>> 使用自定义实现训练模型 <<< ################################
-    net = network.net_softmax_regression_custom(image_width, image_height, num_classes)
-    opt = optimizer.opt_sgd_custom(net.parameters(), lr)
+    net = network.net_softmax_regression_custom(num_inputs, num_classes)
+    opt = optimizer.opt_sgd_custom(net.parameters(), learn_rate)
     loss = loss_func.loss_cross_entropy_custom()
     for ep in range(1, num_epochs + 1):
         train_loss, train_acc = train_epoch(net, train_iter, loss, opt)
@@ -61,8 +61,8 @@ def main():
     data.gen_preview_image(save_path="./custom.jpg", net=net)
 
     ### >>> 使用 torch API 训练模型 <<< ################################
-    net = network.net_softmax_regression(image_width, image_height, num_classes)
-    opt = optimizer.opt_sgd(net.parameters(), lr)
+    net = network.net_softmax_regression(num_inputs, num_classes)
+    opt = optimizer.opt_sgd(net.parameters(), learn_rate)
     loss = loss_func.loss_cross_entropy()
     for ep in range(1, num_epochs + 1):
         train_loss, train_acc = train_epoch(net, train_iter, loss, opt)
