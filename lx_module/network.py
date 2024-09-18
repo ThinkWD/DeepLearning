@@ -51,7 +51,7 @@ class net_linear_regression_custom(object):
         return self.w, self.b
 
     def __call__(self, X):
-        return torch.matmul(X, self.w) + self.b  # 不需要预处理, 没有输出层, 只有一层全连接层
+        return torch.matmul(X, self.w) + self.b  # 没有前后处理, 只有一层输出层
 
 
 def net_softmax_regression(num_inputs, num_outputs):
@@ -61,9 +61,9 @@ def net_softmax_regression(num_inputs, num_outputs):
         num_outputs (int): 输出向量的长度, 即类别总数, 决定输出维度和偏移参数数量
     """
     net = torch.nn.Sequential(
-        torch.nn.Flatten(),  # 输入数据预处理: 将原始图像(三维)展平为向量(一维)
-        torch.nn.Linear(num_inputs, num_outputs),  # 第一层: Linear 全连接层
-        # 输出层: softmax 层. 它没有被显式定义是因为 CrossEntropyLoss 中已经包含了 softmax, 不要重复定义
+        torch.nn.Flatten(),  # 前处理: 将原始图像(三维)展平为向量(一维)
+        torch.nn.Linear(num_inputs, num_outputs),  # 输出层: Linear 全连接层
+        # 后处理 softmax 没有被显式定义是因为 CrossEntropyLoss 中已经包含了 softmax, 不需要重复定义
     )
     # 参数初始化函数(lambda): 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
     init_weights = lambda m: torch.nn.init.normal_(m.weight, std=0.01) if isinstance(m, torch.nn.Linear) else None
@@ -73,7 +73,7 @@ def net_softmax_regression(num_inputs, num_outputs):
 
 class net_softmax_regression_custom(object):
     def __init__(self, num_inputs, num_outputs):
-        """网络结构: Softmax 回归
+        """网络结构: Softmax 回归 的自定义实现
         Args:
             num_inputs (int): 输入特征向量的长度, 决定权重参数数量
             num_outputs (int): 输出向量的长度, 即类别总数, 决定输出维度和偏移参数数量
@@ -86,6 +86,65 @@ class net_softmax_regression_custom(object):
         return [self.w, self.b]
 
     def __call__(self, X):
-        X = X.reshape((-1, self.w.shape[0]))  # 输入数据预处理: 将原始图像(三维)展平为向量(一维)
-        X = torch.matmul(X, self.w) + self.b  # 第一层: Linear 全连接层
-        return softmax(X)  # 输出层: softmax 层, 将预测值转为类别标签
+        X = X.reshape((-1, self.w.shape[0]))  # 前处理: 将原始图像(三维)展平为向量(一维)
+        X = torch.matmul(X, self.w) + self.b  # 输出层: Linear 全连接层
+        return softmax(X)  # 后处理: softmax 函数将预测值转为属于每个类的概率
+
+
+def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens):
+    """网络结构: 多层感知机
+    Args:
+        num_inputs (int): 输入特征向量的长度, 决定权重参数数量
+        num_outputs (int): 输出向量的长度, 即类别总数, 决定输出维度和偏移参数数量
+        num_hiddens (list): 超参数. 隐藏层的数量和每层的大小
+    """
+    # 前处理: 将原始图像(三维)展平为向量(一维)
+    layers = [torch.nn.Flatten()]
+    # 创建隐藏层
+    last_num_inputs = num_inputs
+    for num_hidden in num_hiddens:
+        layers.append(torch.nn.Linear(last_num_inputs, num_hidden))  # 隐藏层: Linear 全连接层
+        layers.append(torch.nn.ReLU())  # 隐藏层的激活函数
+        last_num_inputs = num_hidden
+    # 创建输出层. (后处理 softmax 没有被显式定义是因为 CrossEntropyLoss 中已经包含了 softmax, 不需要重复定义)
+    layers.append(torch.nn.Linear(last_num_inputs, num_outputs))
+    # 创建 torch.nn 模型结构
+    net = torch.nn.Sequential(*layers)
+    # 参数初始化函数(lambda): 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
+    init_weights = lambda m: torch.nn.init.normal_(m.weight, std=0.01) if isinstance(m, torch.nn.Linear) else None
+    net.apply(init_weights)
+    return net
+
+
+class net_multilayer_perceptrons_custom(object):
+    def __init__(self, num_inputs, num_outputs, num_hiddens):
+        """网络结构: 多层感知机 的自定义实现
+        Args:
+            num_inputs (int): 输入特征向量的长度, 决定权重参数数量
+            num_outputs (int): 输出向量的长度, 即类别总数, 决定输出维度和偏移参数数量
+            num_hiddens (list): 超参数. 隐藏层的数量和每层的大小
+        """
+        self.params = []
+        # 创建隐藏层
+        last_num_inputs = num_inputs
+        for num_hidden in num_hiddens:
+            self.params.append(torch.normal(0, 0.01, size=(last_num_inputs, num_hidden), requires_grad=True))
+            self.params.append(torch.zeros(num_hidden, requires_grad=True))
+            last_num_inputs = num_hidden
+        # 创建输出层
+        self.params.append(torch.normal(0, 0.01, size=(last_num_inputs, num_outputs), requires_grad=True))
+        self.params.append(torch.zeros(num_outputs, requires_grad=True))
+
+    def parameters(self):
+        return self.params
+
+    def __call__(self, X):
+        # 前处理: 将原始图像(三维)展平为向量(一维)
+        X = X.reshape((-1, self.params[0].shape[0]))
+        # 隐藏层: 全连接层, 逐层应用权重、偏置和激活函数
+        for i in range(0, len(self.params) - 2, 2):
+            X = relu(torch.matmul(X, self.params[i]) + self.params[i + 1])
+        # 输出层: 全连接层, 应用权重、偏置
+        X = torch.matmul(X, self.params[-2]) + self.params[-1]
+        # 后处理: softmax 函数将预测值转为属于每个类的概率
+        return softmax(X)
