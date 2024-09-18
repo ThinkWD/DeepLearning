@@ -46,7 +46,7 @@ def main():
     image_height = 28
     num_inputs = image_width * image_height  # 输入特征向量长度, 由数据集决定
     num_classes = 10  # 输出类别数量, 由数据集决定
-    num_hiddens = [256]  # (超参数)隐藏层的数量和大小
+    num_hiddens = [512, 256]  # (超参数)隐藏层的数量和大小 (如果隐藏层为空, 此多层感知机就退化为 Softmax 回归)
 
     ### >>> 使用自定义实现训练模型 <<< ################################
     net = network.net_multilayer_perceptrons_custom(num_inputs, num_classes, num_hiddens)

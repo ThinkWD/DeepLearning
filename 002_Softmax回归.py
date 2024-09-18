@@ -34,9 +34,9 @@ def train_epoch(net, train_iter, loss, updater):
 
 def main():
     ### >>> 初始化数据集和超参数 <<< ###########################################
-    learn_rate = 0.1  # 训练的学习率
-    batch_size = 64  # 训练的批大小 (一次读取的数据数量)
-    num_epochs = 10  # 训练遍历数据集的次数
+    learn_rate = 0.1  # (超参数)训练的学习率
+    batch_size = 64  # (超参数)训练的批大小 (一次读取的数据数量)
+    num_epochs = 10  # (超参数)训练遍历数据集的次数
     num_workers = 8  # 加载数据集使用的工作线程数
     data = dataset.Dataset_FashionMNIST()
     train_iter, test_iter = data.get_iter(batch_size, num_workers)
