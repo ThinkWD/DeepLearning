@@ -32,7 +32,7 @@ def main():
     true_w = torch.tensor([2, -3.4, 1.5])
     true_b = 5.2
     data = dataset.Dataset_Gaussian_distribution(true_w, true_b, 1000)
-    # data.save_preview_image()
+    data.gen_preview_image(save_path=f"./preview_dataset.jpg")
 
     ### >>> 设置超参数 <<< ###########################################
     lr = 0.03

@@ -42,9 +42,6 @@ class Dataset_Gaussian_distribution(object):
         # 将 labels 转为列向量
         self.labels = self.labels.reshape((-1, 1))
 
-    def get_dataset(self):
-        return self.features, self.labels
-
     def get_iter(self, batch_size, num_workers=1):
         data_arrays = (self.features, self.labels)
         dataset = torch.utils.data.TensorDataset(*data_arrays)
@@ -60,7 +57,7 @@ class Dataset_Gaussian_distribution(object):
 
 # 一个简单的服装分类数据集
 class Dataset_FashionMNIST(object):
-    def __init__(self, pipeline=defult_pipeline, save_path="./dataset"):
+    def __init__(self, batch_size=64, num_workers=8, pipeline=defult_pipeline, save_path="./dataset"):
         self.text_labels = [
             't-shirt',
             'trouser',
@@ -73,15 +70,21 @@ class Dataset_FashionMNIST(object):
             'bag',
             'ankle boot',
         ]
+        self.batch_size = batch_size
+        self.num_workers = num_workers
         # 初始化 pipeline.
         transforms = torchvision.transforms.Compose(pipeline)
         # 通过内置函数下载数据集到 save_path 目录下
         self.train = torchvision.datasets.FashionMNIST(root=save_path, train=True, transform=transforms, download=True)
         self.test = torchvision.datasets.FashionMNIST(root=save_path, train=False, transform=transforms, download=True)
 
-    def get_iter(self, batch_size, num_workers):
+    def get_iter(self, batch_size=0, num_workers=0):
+        if batch_size <= 0:
+            batch_size = self.batch_size
+        if num_workers <= 0:
+            num_workers = self.num_workers
         train = torch.utils.data.DataLoader(self.train, batch_size, shuffle=True, num_workers=num_workers)
-        test = torch.utils.data.DataLoader(self.train, batch_size, shuffle=False, num_workers=num_workers)
+        test = torch.utils.data.DataLoader(self.test, batch_size, shuffle=False, num_workers=num_workers)
         return train, test
 
     def gen_preview_image(self, save_path=None, num_rows=5, num_cols=5, scale=1.5, net=None):
