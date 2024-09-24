@@ -1,6 +1,5 @@
 import time
 import torch
-import random
 import numpy as np
 import torchvision  # 对于计算机视觉实现的一个库
 import matplotlib.pyplot as plt
@@ -19,36 +18,32 @@ resize_pipeline = [
 ]
 
 
+def synthetic_data(w, b, num_examples):
+    """Generate y = Xw + b + noise"""
+    # 生成形状为 (num_examples, len(w)) 的矩阵, 矩阵用均值为 0 方差为 1 的随机数来填充
+    X = torch.normal(0, 1, (num_examples, len(w)))
+    y = torch.matmul(X, w) + b  # y = Xw + b
+    y += torch.normal(0, 0.01, y.shape)  # 添加噪声
+    y = torch.reshape(y, (-1, 1))  # 转为列向量
+    return X, y
+
+
 class Dataset_Gaussian_distribution(object):
     def __init__(self, true_w, true_b, num_examples):
-        """根据预定义的真实权重和偏差生成专用于线性回归模型,
-            带有随机噪声的高斯分布数据集 (y = X * w + b + 噪声)
-
-        Args:
-            weight (向量): 线性回归模型的权重.
-            deviation (标量): 线性回归模型的偏差.
-            num_examples (int): 要生成的样本总数.
-
+        """高斯分布数据集 (y = X * w + b + 噪声)
         Returns:
-            features (矩阵, 形状为[num_examples, len(weight)]): 生成的数据.
-            labels (向量, 长度为 num_examples): 生成的数据对应的标签.
+            X (矩阵, 形状为[num_examples, len(weight)]): 生成的数据.
+            y (向量, 长度为 num_examples): 生成的数据对应的标签.
         """
-        # 生成形状为 (num_examples, len(w)) 的矩阵, 矩阵用均值为 0 方差为 1 的随机数来填充
-        self.features = torch.normal(0, 1, (num_examples, len(true_w)))
-        # 生成 labels 为矩阵 features 乘 w, 最后整体加上偏差 b
-        self.labels = torch.matmul(self.features, true_w) + true_b
-        # 为了让这个问题变得难一点, 给 labels 添加一些噪声
-        self.labels += torch.normal(0, 0.01, self.labels.shape)
-        # 将 labels 转为列向量
-        self.labels = self.labels.reshape((-1, 1))
+        self.X, self.y = synthetic_data(true_w, true_b, num_examples)
 
-    def get_iter(self, batch_size, num_workers=1):
-        data_arrays = (self.features, self.labels)
+    def get_iter(self, batch_size, is_train=True):
+        data_arrays = (self.X, self.y)
         dataset = torch.utils.data.TensorDataset(*data_arrays)
-        return torch.utils.data.DataLoader(dataset, batch_size, shuffle=True, num_workers=num_workers)
+        return torch.utils.data.DataLoader(dataset, batch_size, shuffle=is_train)
 
     def gen_preview_image(self, save_path=None):
-        plt.scatter(self.features[:, 1].detach().numpy(), self.labels.detach().numpy(), 1)
+        plt.scatter(self.X[:, 1].detach().numpy(), self.y.detach().numpy(), 1)
         if save_path:
             plt.savefig(save_path)
         else:
