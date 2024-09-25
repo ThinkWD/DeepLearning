@@ -29,5 +29,8 @@ class opt_sgd_custom(object):
         # 所以更新参数时，需要将 batch_size 个数据的梯度除以 batch_size
         with torch.no_grad():  # 这里设置更新的时候不要参与梯度计算
             for param in self.params:  # 遍历所有参数, 可能是权重可能是偏差
-                param -= self.lr * (param.grad / batch_size + self.weight_decay * param)  # 更新参数(应用权重衰减)
+                # 显式应用权重衰减: 计算损失时添加正则化项(需要计算L2范数), 然后基于这个损失计算梯度和更新参数
+                # 隐式应用权重衰减: 更新参数时对参数直接添加惩罚项(不用计算L2范数), 可以看作是将正则化分散到每次更新中
+                # 两种方式在实现上有所不同, 但在数学上、效果上是等价的。
+                param -= self.lr * (param.grad / batch_size + self.weight_decay * param)  # 更新参数
                 param.grad.zero_()  # 手动将梯度设置为零, 避免累积

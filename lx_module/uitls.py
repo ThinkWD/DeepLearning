@@ -104,16 +104,16 @@ def train_epoch(net, opt, loss, train_iter):
         # y = y.reshape(y_hat.shape)
         l = loss(y_hat, y)  # 这个批次的损失
         if isinstance(opt, torch.optim.Optimizer):
-            opt.zero_grad()
-            l.mean().backward()
-            opt.step()
-            num_loss += float(l) * len(y)
-            num_samples += y.size().numel()
-        else:  # 使用定制的优化器和损失函数
-            l.sum().backward()
-            opt(X.shape[0])
-            num_loss += float(l.sum())
-            num_samples += y.numel()
+            opt.zero_grad()  # 清空上次的梯度
+            l.mean().backward()  # 根据损失函数计算梯度
+            opt.step()  # 根据梯度更新参数
+            num_loss += float(l) * len(y)  # 更新总损失
+            num_samples += y.size().numel()  # 更新总样本数
+        else:
+            l.sum().backward()  # 根据损失函数计算梯度
+            opt(X.shape[0])  # 根据梯度更新参数
+            num_loss += float(l.sum())  # 更新总损失
+            num_samples += y.numel()  # 更新总样本数
         num_accuracy += accuracy(y_hat, y)  # 这个批次预测正确的数量
     return num_loss / num_samples, num_accuracy / num_samples  # 返回损失和精度
 
