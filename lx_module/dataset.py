@@ -29,15 +29,18 @@ def synthetic_data(w, b, num_examples):
 
 
 class Dataset_Gaussian_distribution(object):
-    def __init__(self, true_w, true_b, num_examples):
+    def __init__(self, true_w, true_b, num_examples, batch_size):
         """高斯分布数据集 (y = X * w + b + 噪声)
         Returns:
             X (矩阵, 形状为[num_examples, len(weight)]): 生成的数据.
             y (向量, 长度为 num_examples): 生成的数据对应的标签.
         """
+        self.batch_size = batch_size
         self.X, self.y = synthetic_data(true_w, true_b, num_examples)
 
-    def get_iter(self, batch_size, is_train=True):
+    def get_iter(self, is_train=True, batch_size=0):
+        if batch_size <= 0:
+            batch_size = self.batch_size
         data_arrays = (self.X, self.y)
         dataset = torch.utils.data.TensorDataset(*data_arrays)
         return torch.utils.data.DataLoader(dataset, batch_size, shuffle=is_train)

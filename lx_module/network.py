@@ -27,24 +27,26 @@ def relu(X):
 #  网络结构 自定义实现
 #
 ###########################################################
-def net_linear_regression(num_key_factors):
+def net_linear_regression(num_key_factors, generator=0.01):
     """网络结构: 线性回归模型
     Args:
         num_key_factors (int): 影响模型结果的关键因素的数量
+        generator (float): 初始化参数使用的方差 (均值默认为 0)
     """
     net = torch.nn.Sequential(torch.nn.Linear(num_key_factors, 1))
-    net[0].weight.data.normal_(0, 0.01)  # w
+    net[0].weight.data.normal_(0, generator)  # w
     net[0].bias.data.fill_(0)  # b
     return net
 
 
 class net_linear_regression_custom(object):
-    def __init__(self, num_key_factors):
+    def __init__(self, num_key_factors, generator=0.01):
         """网络结构: 线性回归模型 的自定义实现
         Args:
             num_key_factors (int): 影响模型结果的关键因素的数量
+            generator (float): 初始化参数使用的方差 (均值默认为 0)
         """
-        self.w = torch.normal(0, 0.01, size=(num_key_factors, 1), requires_grad=True)
+        self.w = torch.normal(0, generator, size=(num_key_factors, 1), requires_grad=True)
         self.b = torch.zeros(1, requires_grad=True)
 
     def parameters(self):
