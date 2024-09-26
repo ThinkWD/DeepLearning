@@ -73,11 +73,10 @@ def accuracy(y_hat, y):
 
 def evaluate(net, loss, data_iter):
     """计算在指定数据集上模型的损失和精度"""
-    if isinstance(net, torch.nn.Module):
-        net.eval()  # 将模型设置为评估模式 评估模式不会执行计算梯度的操作, 性能会好一点
     num_loss = 0  # 训练损失
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
+    net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
     for X, y in data_iter:
         y_hat = net(X)  # 计算梯度
         # y = y.reshape(y_hat.shape)
@@ -94,11 +93,10 @@ def evaluate(net, loss, data_iter):
 
 def train_epoch(net, opt, loss, train_iter):
     """训练模型一个迭代周期 (此函数返回的是参数更新前的损失和精度, 算完后参数被更新)"""
-    if isinstance(net, torch.nn.Module):
-        net.train()  # 如果是 nn 模型, 将模型设置为训练模式(需要更新参数)
     num_loss = 0  # 训练损失
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
+    net.train()  # 将模型设置为训练模式: 更新参数, 应用丢弃法
     for X, y in train_iter:
         y_hat = net(X)  # 计算梯度并更新参数
         # y = y.reshape(y_hat.shape)
@@ -119,7 +117,7 @@ def train_epoch(net, opt, loss, train_iter):
 
 
 def train_classification(net, opt, loss, data, num_epochs, log="log"):
-    animator = Animator(legend=['train loss', 'train acc', 'test loss', 'test acc'])
+    animator = Animator(ylim=[0.2, 1], legend=['train loss', 'train acc', 'test loss', 'test acc'])
     train_iter, test_iter = data.get_iter()
     for ep in range(1, num_epochs + 1):
         test_loss, test_acc = evaluate(net, loss, test_iter)

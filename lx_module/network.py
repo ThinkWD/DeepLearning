@@ -22,6 +22,17 @@ def relu(X):
     return torch.max(X, torch.zeros_like(X))
 
 
+class BaseModel:
+    def __init__(self):
+        self.is_train = False
+
+    def train(self):
+        self.is_train = True
+
+    def eval(self):
+        self.is_train = False
+
+
 ###########################################################
 #
 #  网络结构 自定义实现
@@ -39,7 +50,7 @@ def net_linear_regression(num_key_factors, generator=0.01):
     return net
 
 
-class net_linear_regression_custom(object):
+class net_linear_regression_custom(BaseModel):
     def __init__(self, num_key_factors, generator=0.01):
         """网络结构: 线性回归模型 的自定义实现
         Args:
@@ -73,7 +84,7 @@ def net_softmax_regression(num_inputs, num_outputs):
     return net
 
 
-class net_softmax_regression_custom(object):
+class net_softmax_regression_custom(BaseModel):
     def __init__(self, num_inputs, num_outputs):
         """网络结构: Softmax 回归 的自定义实现
         Args:
@@ -93,20 +104,27 @@ class net_softmax_regression_custom(object):
         return softmax(X)  # 后处理: softmax 函数将预测值转为属于每个类的概率
 
 
-def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens):
+def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout=[]):
     """网络结构: 多层感知机
     Args:
         num_inputs (int): 输入特征向量的长度, 决定权重参数数量
         num_outputs (int): 输出向量的长度, 即类别总数, 决定输出维度和偏移参数数量
         num_hiddens (list): 超参数. 隐藏层的数量和每层的大小
     """
+    # 确保 dropout 数组与隐藏层数量一致
+    if len(dropout) < len(num_hiddens):
+        dropout = dropout + [0.0] * (len(num_hiddens) - len(dropout))
+    else:
+        dropout = dropout[: len(num_hiddens)]
     # 前处理: 将原始图像(三维)展平为向量(一维)
     layers = [torch.nn.Flatten()]
     # 创建隐藏层
     last_num_inputs = num_inputs
-    for num_hidden in num_hiddens:
+    for i, num_hidden in enumerate(num_hiddens):
         layers.append(torch.nn.Linear(last_num_inputs, num_hidden))  # 隐藏层: Linear 全连接层
         layers.append(torch.nn.ReLU())  # 隐藏层的激活函数
+        if 0 < dropout[i] <= 1:
+            layers.append(torch.nn.Dropout(dropout[i]))  # 应用 dropout
         last_num_inputs = num_hidden
     # 创建输出层. (后处理 softmax 没有被显式定义是因为 CrossEntropyLoss 中已经包含了 softmax, 不需要重复定义)
     layers.append(torch.nn.Linear(last_num_inputs, num_outputs))
@@ -118,15 +136,36 @@ def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens):
     return net
 
 
-class net_multilayer_perceptrons_custom(object):
-    def __init__(self, num_inputs, num_outputs, num_hiddens):
+def dropout_layer(X, dropout, is_train=False):
+    '''以 dropout 的概率随机丢弃输入 X 中的元素'''
+    assert 0 <= dropout <= 1
+    if dropout == 0 or is_train == False:
+        return X
+    if dropout == 1:
+        return torch.zeros_like(X)
+    # torch.rand 生成 0 ~ 1 之间的均匀随机分布, 大于 dropout 部分置1, 小于的部分置零, 得到 mask
+    mask = (torch.rand(X.shape) > dropout).float()
+    # 在最后除以 1 - p 是为了保持输出的期望值不变。
+    # 随机丢弃一部分神经元的输出会使得剩余的神经元输出变得稀疏。
+    # 如果不进行调整，剩余神经元的输出总和会变小，从而影响模型的训练效果。
+    return mask * X / (1.0 - dropout)
+
+
+class net_multilayer_perceptrons_custom(BaseModel):
+    def __init__(self, num_inputs, num_outputs, num_hiddens, dropout=[]):
         """网络结构: 多层感知机 的自定义实现
         Args:
             num_inputs (int): 输入特征向量的长度, 决定权重参数数量
             num_outputs (int): 输出向量的长度, 即类别总数, 决定输出维度和偏移参数数量
             num_hiddens (list): 超参数. 隐藏层的数量和每层的大小
+            dropout (list): (丢弃法插件) 每层的 dropout 概率
         """
         self.params = []
+        # 确保 dropout 数组与隐藏层数量一致
+        if len(dropout) < len(num_hiddens):
+            self.dropout = dropout + [0.0] * (len(num_hiddens) - len(dropout))
+        else:
+            self.dropout = dropout[: len(num_hiddens)]
         # 创建隐藏层
         last_num_inputs = num_inputs
         for num_hidden in num_hiddens:
@@ -143,9 +182,10 @@ class net_multilayer_perceptrons_custom(object):
     def __call__(self, X):
         # 前处理: 将原始图像(三维)展平为向量(一维)
         X = X.reshape((-1, self.params[0].shape[0]))
-        # 隐藏层: 全连接层, 逐层应用权重、偏置和激活函数
+        # 隐藏层: 全连接层, 逐层应用权重、偏置、激活函数和丢弃法
         for i in range(0, len(self.params) - 2, 2):
-            X = relu(torch.matmul(X, self.params[i]) + self.params[i + 1])
+            X = relu(torch.matmul(X, self.params[i]) + self.params[i + 1])  # 全连接层计算+激活函数
+            X = dropout_layer(X, self.dropout[i // 2], self.is_train)  # 应用丢弃法
         # 输出层: 全连接层, 应用权重、偏置
         X = torch.matmul(X, self.params[-2]) + self.params[-1]
         # 后处理: softmax 函数将预测值转为属于每个类的概率
