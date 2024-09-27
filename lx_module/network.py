@@ -6,17 +6,6 @@ import torch
 #  特殊通用结构 自定义实现
 #
 ###########################################################
-def softmax(X):
-    """softmax 函数
-    1. 对每个项求幂 (使用exp)
-    2. 对每一行求和得到每个样本的规范化常数
-    3. 将每一行除以其规范化常数, 确保结果的和为 1
-    """
-    X_exp = torch.exp(X)
-    partition = X_exp.sum(1, keepdim=True)
-    return X_exp / partition  # (广播机制)
-
-
 def relu(X):
     """激活函数 relu, 就是 max(x, 0)"""
     return torch.max(X, torch.zeros_like(X))
@@ -101,7 +90,7 @@ class net_softmax_regression_custom(BaseModel):
     def __call__(self, X):
         X = X.reshape((-1, self.w.shape[0]))  # 前处理: 将原始图像(三维)展平为向量(一维)
         X = torch.matmul(X, self.w) + self.b  # 输出层: Linear 全连接层
-        return softmax(X)  # 后处理: softmax 函数将预测值转为属于每个类的概率
+        return X  # 后处理: softmax 函数将预测值转为属于每个类的概率 (定义在损失函数中)
 
 
 def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout=[]):
@@ -188,5 +177,4 @@ class net_multilayer_perceptrons_custom(BaseModel):
             X = dropout_layer(X, self.dropout[i // 2], self.is_train)  # 应用丢弃法
         # 输出层: 全连接层, 应用权重、偏置
         X = torch.matmul(X, self.params[-2]) + self.params[-1]
-        # 后处理: softmax 函数将预测值转为属于每个类的概率
-        return softmax(X)
+        return X  # 后处理: softmax 函数将预测值转为属于每个类的概率 (定义在损失函数中)
