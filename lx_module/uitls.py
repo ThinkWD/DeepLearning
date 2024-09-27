@@ -140,10 +140,9 @@ def train_classification(net, opt, loss, data, num_epochs, log="log"):
     data.gen_preview_image(save_path=f"./preview_{log}.jpg", net=net)
 
 
-def train_regression(net, opt, loss, data_train, data_test, num_epochs, log="log"):
+def train_regression(net, opt, loss, data, num_epochs, log="log"):
     animator = Animator(yscale='log', legend=['train loss', 'test loss'])
-    train_iter = data_train.get_iter(True)
-    test_iter = data_test.get_iter(False)
+    train_iter, test_iter = data.get_iter()
     for ep in range(1, num_epochs + 1):
         test_loss, _ = evaluate(net, loss, test_iter)
         train_loss, _ = train_epoch(net, opt, loss, train_iter)

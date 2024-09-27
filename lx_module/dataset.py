@@ -28,25 +28,33 @@ def synthetic_data(w, b, num_examples):
     return X, y
 
 
-class Dataset_Gaussian_distribution(object):
-    def __init__(self, true_w, true_b, num_examples, batch_size):
+class Dataset_GaussianDistribution(object):
+    def __init__(self, true_w, true_b, train_examples, test_examples, batch_size=10, num_workers=8):
         """高斯分布数据集 (y = X * w + b + 噪声)
         Returns:
             X (矩阵, 形状为[num_examples, len(weight)]): 生成的数据.
             y (向量, 长度为 num_examples): 生成的数据对应的标签.
         """
         self.batch_size = batch_size
-        self.X, self.y = synthetic_data(true_w, true_b, num_examples)
+        self.num_workers = num_workers
+        self.train_X, self.train_y = synthetic_data(true_w, true_b, train_examples)
+        self.test_X, self.test_y = synthetic_data(true_w, true_b, test_examples)
 
-    def get_iter(self, is_train=True, batch_size=0):
+    def get_iter(self, batch_size=0, num_workers=0):
         if batch_size <= 0:
             batch_size = self.batch_size
-        data_arrays = (self.X, self.y)
-        dataset = torch.utils.data.TensorDataset(*data_arrays)
-        return torch.utils.data.DataLoader(dataset, batch_size, shuffle=is_train)
+        if num_workers <= 0:
+            num_workers = self.num_workers
+        train_arrays = (self.train_X, self.train_y)
+        train_dataset = torch.utils.data.TensorDataset(*train_arrays)
+        train_iter = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=num_workers)
+        test_arrays = (self.test_X, self.test_y)
+        test_dataset = torch.utils.data.TensorDataset(*test_arrays)
+        test_iter = torch.utils.data.DataLoader(test_dataset, batch_size, shuffle=False, num_workers=num_workers)
+        return train_iter, test_iter
 
     def gen_preview_image(self, save_path=None):
-        plt.scatter(self.X[:, 1].detach().numpy(), self.y.detach().numpy(), 1)
+        plt.scatter(self.train_X[:, 1].detach().numpy(), self.train_y.detach().numpy(), 1)
         if save_path:
             plt.savefig(save_path)
         else:

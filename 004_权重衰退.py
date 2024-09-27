@@ -24,16 +24,14 @@ def main():
     # 定义真实最优解情况下的权重 w 和偏差 b, 并根据它们生成数据集
     true_w = torch.ones((200, 1)) * 0.01  # 0.01 乘以全 1 的向量
     true_b = 0.05
-    train_data = dataset.Dataset_Gaussian_distribution(true_w, true_b, 20, batch_size)
-    train_data.gen_preview_image(save_path=f"./preview_train.jpg")
-    test_data = dataset.Dataset_Gaussian_distribution(true_w, true_b, 100, batch_size)
-    test_data.gen_preview_image(save_path=f"./preview_test.jpg")
+    data = dataset.Dataset_GaussianDistribution(true_w, true_b, 20, 100, batch_size)
+    data.gen_preview_image(save_path=f"./preview_train.jpg")
 
     ### >>> 使用自定义实现训练模型 <<< ################################
     net = network.net_linear_regression_custom(len(true_w), generator)  # 网络结构
     opt = optimizer.opt_sgd_custom(net.parameters(), learn_rate, weight_decay)  # 优化器
     loss = loss_func.loss_squared_custom()  # 损失函数
-    uitls.train_regression(net, opt, loss, train_data, test_data, num_epochs, "custom")
+    uitls.train_regression(net, opt, loss, data, num_epochs, "custom")
     w, _ = net.parameters()
     print(f"[custom] w 的 L2 范数: {torch.norm(w).item()}\n\n")
 
@@ -41,7 +39,7 @@ def main():
     net = network.net_linear_regression(len(true_w), generator)  # 网络结构
     opt = optimizer.opt_sgd(net.parameters(), learn_rate, weight_decay)  # 优化器
     loss = loss_func.loss_squared()  # 损失函数
-    uitls.train_regression(net, opt, loss, train_data, test_data, num_epochs, "torch")
+    uitls.train_regression(net, opt, loss, data, num_epochs, "torch")
     w, _ = net.parameters()
     print(f"[torch] w 的 L2 范数: {torch.norm(w).item()}\n\n")
 
