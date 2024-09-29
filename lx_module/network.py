@@ -68,7 +68,7 @@ def net_softmax_regression(num_inputs, num_outputs):
         # 后处理 softmax 没有被显式定义是因为 CrossEntropyLoss 中已经包含了 softmax, 不需要重复定义
     )
     # 参数初始化函数(lambda): 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
-    init_weights = lambda m: torch.nn.init.normal_(m.weight, std=0.01) if isinstance(m, torch.nn.Linear) else None
+    init_weights = lambda m: torch.nn.init.xavier_normal_(m.weight) if isinstance(m, torch.nn.Linear) else None
     net.apply(init_weights)
     return net
 
@@ -81,7 +81,8 @@ class net_softmax_regression_custom(BaseModel):
             num_outputs (int): 输出向量的长度, 即类别总数, 决定输出维度和偏移参数数量
         """
         # 权重 w 使用高斯分布(均值0方差0.01) 初始化为随机值, 偏差 b 初始化为 0
-        self.w = torch.normal(0, 0.01, size=(num_inputs, num_outputs), requires_grad=True)
+        variance = 2 / (num_inputs + num_outputs)
+        self.w = torch.normal(0, variance, size=(num_inputs, num_outputs), requires_grad=True)
         self.b = torch.zeros(num_outputs, requires_grad=True)
 
     def parameters(self):
@@ -120,7 +121,7 @@ def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout=[])
     # 创建 torch.nn 模型结构
     net = torch.nn.Sequential(*layers)
     # 参数初始化函数(lambda): 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
-    init_weights = lambda m: torch.nn.init.normal_(m.weight, std=0.01) if isinstance(m, torch.nn.Linear) else None
+    init_weights = lambda m: torch.nn.init.xavier_normal_(m.weight) if isinstance(m, torch.nn.Linear) else None
     net.apply(init_weights)
     return net
 
@@ -158,11 +159,13 @@ class net_multilayer_perceptrons_custom(BaseModel):
         # 创建隐藏层
         last_num_inputs = num_inputs
         for num_hidden in num_hiddens:
-            self.params.append(torch.normal(0, 0.01, size=(last_num_inputs, num_hidden), requires_grad=True))
+            variance = 2 / (last_num_inputs + num_hidden)
+            self.params.append(torch.normal(0, variance, size=(last_num_inputs, num_hidden), requires_grad=True))
             self.params.append(torch.zeros(num_hidden, requires_grad=True))
             last_num_inputs = num_hidden
         # 创建输出层
-        self.params.append(torch.normal(0, 0.01, size=(last_num_inputs, num_outputs), requires_grad=True))
+        variance = 2 / (last_num_inputs + num_outputs)
+        self.params.append(torch.normal(0, variance, size=(last_num_inputs, num_outputs), requires_grad=True))
         self.params.append(torch.zeros(num_outputs, requires_grad=True))
 
     def parameters(self):
