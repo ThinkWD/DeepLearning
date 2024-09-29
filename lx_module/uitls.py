@@ -71,6 +71,23 @@ def accuracy(y_hat, y):
     return float(cmp.type(y.dtype).sum())  # 返回预测正确的数量
 
 
+def log_rmse(net, loss, data_iter):
+    """计算在指定数据集上模型的相对损失 (对于回归任务, 结果数量级差距较大时)"""
+    num_loss = 0  # 相对损失
+    num_samples = 0  # 样本总数
+    net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
+    for X, y in data_iter:
+        y_hat = torch.clamp(net(X), 1, float('inf'))
+        l = loss(torch.log(y_hat), torch.log(y))
+        if isinstance(loss, torch.nn.Module):
+            num_loss += float(l) * len(y)
+            num_samples += y.size().numel()
+        else:
+            num_loss += float(l.sum())
+            num_samples += y.numel()
+    return torch.sqrt(num_loss / num_samples)  # 返回相对损失
+
+
 def evaluate(net, loss, data_iter):
     """计算在指定数据集上模型的损失和精度"""
     num_loss = 0  # 训练损失
