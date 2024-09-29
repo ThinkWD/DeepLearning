@@ -80,12 +80,12 @@ def log_rmse(net, loss, data_iter):
         y_hat = torch.clamp(net(X), 1, float('inf'))
         l = loss(torch.log(y_hat), torch.log(y))
         if isinstance(loss, torch.nn.Module):
-            num_loss += float(l) * len(y)
+            num_loss += l * len(y)
             num_samples += y.size().numel()
         else:
-            num_loss += float(l.sum())
+            num_loss += l.sum()
             num_samples += y.numel()
-    return torch.sqrt(num_loss / num_samples)  # 返回相对损失
+    return float(torch.sqrt(num_loss / num_samples))  # 返回相对损失
 
 
 def evaluate(net, loss, data_iter):

@@ -12,6 +12,11 @@ def opt_sgd(params, lr, weight_decay=0):
     return torch.optim.SGD(params, lr=lr, weight_decay=weight_decay)
 
 
+def opt_adam(params, lr, weight_decay=0):
+    '''优化算法: 批量随机梯度下降 (weight_decay 也可以只为某一层的参数单独设置, 这里直接为全局设置)'''
+    return torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
+
+
 def l2_penalty(w):
     '''权重衰减: 使用 L2 均方范数作为柔性限制, 来缓解过拟合'''
     return torch.sum(w.pow(2)) / 2

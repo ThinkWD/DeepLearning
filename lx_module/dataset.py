@@ -182,7 +182,7 @@ class Dataset_HousePricesAdvanced(object):
         self.X = torch.tensor(all_features.values, dtype=torch.float32)
         self.y = torch.tensor(train.SalePrice.values.reshape(-1, 1), dtype=torch.float32)
 
-    def get_k_fold_data_iter(self, K, i):
+    def get_k_fold_data_iter(self, K, i, batch_size=0, num_workers=0):
         if batch_size <= 0:
             batch_size = self.batch_size
         if num_workers <= 0:
