@@ -1,6 +1,12 @@
 import torch
 
 
+def try_gpu(i=0):
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
 ###########################################################
 #
 #  特殊通用结构 自定义实现
@@ -123,7 +129,7 @@ def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout=[])
     # 参数初始化函数(lambda): 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
     init_weights = lambda m: torch.nn.init.xavier_normal_(m.weight) if isinstance(m, torch.nn.Linear) else None
     net.apply(init_weights)
-    return net
+    return net.to(device=try_gpu())
 
 
 def dropout_layer(X, dropout, is_train=False):
@@ -134,7 +140,7 @@ def dropout_layer(X, dropout, is_train=False):
     if dropout == 1:
         return torch.zeros_like(X)
     # torch.rand 生成 0 ~ 1 之间的均匀随机分布, 大于 dropout 部分置1, 小于的部分置零, 得到 mask
-    mask = (torch.rand(X.shape) > dropout).float()
+    mask = (torch.rand(X.shape, device=X.device) > dropout).float()
     # 在最后除以 1 - p 是为了保持输出的期望值不变。
     # 随机丢弃一部分神经元的输出会使得剩余的神经元输出变得稀疏。
     # 如果不进行调整，剩余神经元的输出总和会变小，从而影响模型的训练效果。
@@ -159,14 +165,16 @@ class net_multilayer_perceptrons_custom(BaseModel):
         # 创建隐藏层
         last_num_inputs = num_inputs
         for num_hidden in num_hiddens:
+            size = (last_num_inputs, num_hidden)
             variance = 2 / (last_num_inputs + num_hidden)
-            self.params.append(torch.normal(0, variance, size=(last_num_inputs, num_hidden), requires_grad=True))
-            self.params.append(torch.zeros(num_hidden, requires_grad=True))
+            self.params.append(torch.normal(0, variance, size=size, requires_grad=True, device=try_gpu()))
+            self.params.append(torch.zeros(num_hidden, requires_grad=True, device=try_gpu()))
             last_num_inputs = num_hidden
         # 创建输出层
+        size = (last_num_inputs, num_outputs)
         variance = 2 / (last_num_inputs + num_outputs)
-        self.params.append(torch.normal(0, variance, size=(last_num_inputs, num_outputs), requires_grad=True))
-        self.params.append(torch.zeros(num_outputs, requires_grad=True))
+        self.params.append(torch.normal(0, variance, size=size, requires_grad=True, device=try_gpu()))
+        self.params.append(torch.zeros(num_outputs, requires_grad=True, device=try_gpu()))
 
     def parameters(self):
         return self.params

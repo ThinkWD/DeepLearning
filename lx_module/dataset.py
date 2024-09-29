@@ -5,6 +5,13 @@ import numpy as np
 import torchvision  # 对于计算机视觉实现的一个库
 import matplotlib.pyplot as plt
 
+
+def try_gpu(i=0):
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
 ###########################################################
 #
 #  数据集 自定义实现
@@ -153,7 +160,9 @@ class Dataset_HousePricesAdvanced(object):
         # 因此需要在读取 CSV 文件时, 使用 keep_default_na=False 和 na_values 参数来明确指定哪些值应该被视为缺失值.
         train = pandas.read_csv(f'{save_path}/HousePricesAdvanced/train.csv', keep_default_na=False, na_values=['NA'])
         # 只有 train 部分带有标签, 可以训练. test 部分没有标签, 无法参与训练, 只能用于提交结果
-        test = pandas.read_csv(f'{save_path}/HousePricesAdvanced/test.csv', keep_default_na=False, na_values=['NA'])
+        self.test = pandas.read_csv(
+            f'{save_path}/HousePricesAdvanced/test.csv', keep_default_na=False, na_values=['NA']
+        )
         # print(train.shape)
         # print(train.iloc[0:4, [0, 1, 2, 3, -3, -2, -1]])
 
@@ -161,15 +170,13 @@ class Dataset_HousePricesAdvanced(object):
         # 由于我们可以提前拿到用于提交结果的 test 数据, 因此在数据标准化时可以直接考虑所有数据, 这样在 test 中结果会更好
         # 这是一种取巧的办法, 实际的应用场景中不会有这种事情, 但是为了打比赛有更好的结果, 还是必须得做.
         # 将 train 和 test 打包 (不参与标准化的数据: 第一列的 ID, 和训练集最后一列的标签)
-        all_features = pandas.concat((train.iloc[:, 1:-1], test.iloc[:, 1:]))
+        all_features = pandas.concat((train.iloc[:, 1:-1], self.test.iloc[:, 1:]))
         # 提取数值类数据的索引 (只有数值类数据参与标准化)
         numeric_features = all_features.dtypes[all_features.dtypes != 'object'].index
         # 数据标准化 (将所有数值特征的均值变成0方差变成1) (每个数值都减去这一列的均值然后除以这一列的方差)
         all_features[numeric_features] = all_features[numeric_features].apply(lambda x: (x - x.mean()) / (x.std()))
         # 将缺失值置为均值 (在标准化数据之后，所有均值变成0了)
         all_features[numeric_features] = all_features[numeric_features].fillna(0)
-        # 标准化之后, 取巧结束. test 部分没用了, 将它排除.
-        all_features = all_features[: train.shape[0]]
 
         ### >>> 数据预处理(非数值类) <<< ##########################################################################
         # 对于非数值类数据, 使用独热编码替换它们 (dummy_na=True 将缺失值也视为一个单独的类)
@@ -179,8 +186,9 @@ class Dataset_HousePricesAdvanced(object):
 
         ### >>> 得到数据和标签 <<< ##########################################################################
         # 关于训练集和测试集的划分, 可以简单的按比例划分, 但为了打比赛, 还是使用 K 折交叉验证
-        self.X = torch.tensor(all_features.values, dtype=torch.float32)
-        self.y = torch.tensor(train.SalePrice.values.reshape(-1, 1), dtype=torch.float32)
+        self.X = torch.tensor(all_features[: train.shape[0]].values, dtype=torch.float32, device=try_gpu())
+        self.y = torch.tensor(train.SalePrice.values.reshape(-1, 1), dtype=torch.float32, device=try_gpu())
+        self.test_X = torch.tensor(all_features[train.shape[0] :].values, dtype=torch.float32, device=try_gpu())
 
     def get_k_fold_data_iter(self, K, i, batch_size=0, num_workers=0):
         if batch_size <= 0:
@@ -195,3 +203,16 @@ class Dataset_HousePricesAdvanced(object):
         test_dataset = torch.utils.data.TensorDataset(*test_arrays)
         test_iter = torch.utils.data.DataLoader(test_dataset, batch_size, shuffle=False, num_workers=num_workers)
         return train_iter, test_iter
+
+    def get_test_data(self):
+        return self.test, self.test_X
+
+    def get_train_data_iter(self, batch_size=0, num_workers=0):
+        if batch_size <= 0:
+            batch_size = self.batch_size
+        if num_workers <= 0:
+            num_workers = self.num_workers
+        train_arrays = (self.X, self.y)
+        train_dataset = torch.utils.data.TensorDataset(*train_arrays)
+        train_iter = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=num_workers)
+        return train_iter
