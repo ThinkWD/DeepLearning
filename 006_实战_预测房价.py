@@ -75,10 +75,9 @@ def train_and_pred(learn_rate, batch_size, num_epochs, weight_decay, num_hiddens
     num_workers = 0  # 加载数据集使用的工作线程数
     data = dataset.Dataset_HousePricesAdvanced(batch_size, num_workers)
     ### >>> 使用 torch API 训练模型 <<< ################################
-    net = network.net_multilayer_perceptrons_custom(num_inputs, num_outputs, num_hiddens, dropout)
+    net = network.net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout)
     opt = optimizer.opt_adam(net.parameters(), learn_rate, weight_decay)
-    loss = loss_func.loss_squared_custom()
-
+    loss = loss_func.loss_squared()
     train_iter = data.get_train_data_iter()
     for ep in range(1, num_epochs + 1):
         train_log_loss = uitls.log_rmse(net, loss, train_iter)
@@ -86,16 +85,17 @@ def train_and_pred(learn_rate, batch_size, num_epochs, weight_decay, num_hiddens
         print(f"[{log}] epoch {ep:>3}, train loss: {train_log_loss:.6f}")
     train_log_loss = uitls.log_rmse(net, loss, train_iter)
     print(f"[{log}] Training completed, train loss: {train_log_loss:.6f}")
-
-    # 将网络应用于测试集。
+    ### >>> 导出推理结果 <<< ################################
+    # 将网络应用于测试集
     test_data, test_X = data.get_test_data()
     preds = net(test_X).detach().cpu().numpy()
-    # 将其重新格式化以导出到Kaggle
+    # 将其重新格式化以导出到 Kaggle
     test_data['SalePrice'] = pandas.Series(preds.reshape(1, -1)[0])
     submission = pandas.concat([test_data['Id'], test_data['SalePrice']], axis=1)
     submission.to_csv('submission.csv', index=False)
 
 
+# 最佳成绩: 0.13006
 if __name__ == "__main__":
     K_fold = 5  # (超参数) K 折交叉验证
     learn_rate = 0.0008  # (超参数)训练的学习率
