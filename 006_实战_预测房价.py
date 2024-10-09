@@ -88,6 +88,7 @@ def train_and_pred(learn_rate, batch_size, num_epochs, weight_decay, num_hiddens
     ### >>> 导出推理结果 <<< ################################
     # 将网络应用于测试集
     test_data, test_X = data.get_test_data()
+    test_X = test_X.to(uitls.try_gpu())
     preds = net(test_X).detach().cpu().numpy()
     # 将其重新格式化以导出到 Kaggle
     test_data['SalePrice'] = pandas.Series(preds.reshape(1, -1)[0])

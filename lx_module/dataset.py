@@ -131,7 +131,8 @@ class Dataset_FashionMNIST(object):
                 axes[i, j].axis('off')
                 tittle = self.text_labels[self.train[i * num_cols + j][1]]
                 if net:
-                    tittle = f"{tittle}\n{self.text_labels[net(self.train[i * num_cols + j][0]).argmax(axis=1)]}"
+                    y_hat_index = net(self.train[i * num_cols + j][0].to(try_gpu())).argmax(axis=1)
+                    tittle = f"{tittle}\n{self.text_labels[y_hat_index]}"
                 axes[i, j].set_title(tittle)
         plt.tight_layout()
         if save_path:
@@ -186,9 +187,9 @@ class Dataset_HousePricesAdvanced(object):
 
         ### >>> 得到数据和标签 <<< ##########################################################################
         # 关于训练集和测试集的划分, 可以简单的按比例划分, 但为了打比赛, 还是使用 K 折交叉验证
-        self.X = torch.tensor(all_features[: train.shape[0]].values, dtype=torch.float32, device=try_gpu())
-        self.y = torch.tensor(train.SalePrice.values.reshape(-1, 1), dtype=torch.float32, device=try_gpu())
-        self.test_X = torch.tensor(all_features[train.shape[0] :].values, dtype=torch.float32, device=try_gpu())
+        self.X = torch.tensor(all_features[: train.shape[0]].values, dtype=torch.float32)
+        self.y = torch.tensor(train.SalePrice.values.reshape(-1, 1), dtype=torch.float32)
+        self.test_X = torch.tensor(all_features[train.shape[0] :].values, dtype=torch.float32)
 
     def get_k_fold_data_iter(self, K, i, batch_size=0, num_workers=0):
         if batch_size <= 0:

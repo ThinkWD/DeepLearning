@@ -2,6 +2,12 @@ import torch
 from matplotlib import pyplot as plt
 
 
+def try_gpu(i=0):
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
 def set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend):
     axes.set_xlabel(xlabel)
     axes.set_ylabel(ylabel)
@@ -76,7 +82,10 @@ def log_rmse(net, loss, data_iter):
     num_loss = 0  # 相对损失
     num_samples = 0  # 样本总数
     net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
+    device = try_gpu()
     for X, y in data_iter:
+        X = X.to(device)
+        y = y.to(device)
         y_hat = torch.clamp(net(X), 1, float('inf'))
         l = loss(torch.log(y_hat), torch.log(y))
         if isinstance(loss, torch.nn.Module):
@@ -94,7 +103,10 @@ def evaluate(net, loss, data_iter):
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
     net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
+    device = try_gpu()
     for X, y in data_iter:
+        X = X.to(device)
+        y = y.to(device)
         y_hat = net(X)  # 计算梯度
         # y = y.reshape(y_hat.shape)
         l = loss(y_hat, y)  # 这个批次的损失
@@ -114,7 +126,10 @@ def train_epoch(net, opt, loss, train_iter):
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
     net.train()  # 将模型设置为训练模式: 更新参数, 应用丢弃法
+    device = try_gpu()
     for X, y in train_iter:
+        X = X.to(device)
+        y = y.to(device)
         y_hat = net(X)  # 计算梯度并更新参数
         # y = y.reshape(y_hat.shape)
         l = loss(y_hat, y)  # 这个批次的损失
@@ -145,7 +160,7 @@ def train_classification(net, opt, loss, data, num_epochs, log="log"):
         train_loss, train_acc = train_epoch(net, opt, loss, train_iter)
         animator.add(ep, (train_loss, train_acc, test_loss, test_acc))
         print(
-            f"[{log}] epoch {ep}\t, "
+            f"[{log}] epoch {ep:>5}, "
             f"train loss: {train_loss:.6f}, train accuracy: {train_acc:.6f}, "
             f"test loss: {test_loss:.6f}, test accuracy: {test_acc:.6f}"
         )
@@ -169,7 +184,7 @@ def train_regression(net, opt, loss, data, num_epochs, log="log"):
         train_loss, _ = train_epoch(net, opt, loss, train_iter)
         animator.add(ep, (train_loss, test_loss))
         print(
-            f"[{log}] epoch {ep}\t, "
+            f"[{log}] epoch {ep:>5}, "
             f"train loss: {train_loss:.6f}, "  # "train accuracy: {train_acc:.6f}, "
             f"test loss: {test_loss:.6f}"  # ", test accuracy: {test_acc:.6f}"
         )

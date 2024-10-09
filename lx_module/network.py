@@ -126,9 +126,15 @@ def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout=[])
     layers.append(torch.nn.Linear(last_num_inputs, num_outputs))
     # 创建 torch.nn 模型结构
     net = torch.nn.Sequential(*layers)
-    # 参数初始化函数(lambda): 当 m 是 torch.nn.Linear 类型时初始化其权重, 否则什么也不做
-    init_weights = lambda m: torch.nn.init.xavier_normal_(m.weight) if isinstance(m, torch.nn.Linear) else None
+
+    # 参数初始化函数: 当 m 是 torch.nn.Linear 权重时执行 xavier 初始化
+    def init_weights(m):
+        if isinstance(m, torch.nn.Linear):
+            torch.nn.init.xavier_normal_(m.weight)
+
     net.apply(init_weights)
+    # for name, param in net.named_parameters():
+    #     print(f"{name:>12}: {param.shape}")
     return net.to(device=try_gpu())
 
 
