@@ -5,6 +5,7 @@ from lx_module import network
 from lx_module import loss_func
 from lx_module import uitls
 
+
 ###########################################################################
 #
 #
@@ -12,6 +13,33 @@ from lx_module import uitls
 #
 #
 ###########################################################################
+def net_linear_regression(num_key_factors, generator=0.01):
+    """网络结构: 线性回归模型 的 torch API 实现
+    Args:
+        num_key_factors (int): 影响模型结果的关键因素的数量
+        generator (float): 初始化参数使用的方差 (均值默认为 0)
+    """
+    net = torch.nn.Sequential(torch.nn.Linear(num_key_factors, 1))
+    net[0].weight.data.normal_(0, generator)  # w
+    net[0].bias.data.fill_(0)  # b
+    return net.to(device=uitls.try_gpu())
+
+
+class net_linear_regression_custom(network.BaseModel):
+    def __init__(self, num_key_factors, generator=0.01):
+        """网络结构: 线性回归模型 的自定义实现
+        Args:
+            num_key_factors (int): 影响模型结果的关键因素的数量
+            generator (float): 初始化参数使用的方差 (均值默认为 0)
+        """
+        self.w = torch.normal(0, generator, size=(num_key_factors, 1), requires_grad=True, device=uitls.try_gpu())
+        self.b = torch.zeros(1, requires_grad=True, device=uitls.try_gpu())
+
+    def parameters(self):
+        return self.w, self.b
+
+    def __call__(self, X):
+        return torch.matmul(X, self.w) + self.b  # 没有前后处理, 只有一层输出层
 
 
 def main():
@@ -28,7 +56,7 @@ def main():
     data.gen_preview_image(save_path=f"./preview_train.jpg")
 
     ### >>> 使用自定义实现训练模型 <<< ################################
-    net = network.net_linear_regression_custom(len(true_w), generator)  # 网络结构
+    net = net_linear_regression_custom(len(true_w), generator)  # 网络结构
     opt = optimizer.opt_sgd_custom(net.parameters(), learn_rate, weight_decay)  # 优化器
     loss = loss_func.loss_squared_custom()  # 损失函数
     uitls.train_regression(net, opt, loss, data, num_epochs, "custom")
@@ -36,7 +64,7 @@ def main():
     print(f"[custom] w 的 L2 范数: {torch.norm(w).item()}\n\n")
 
     ### >>> 使用 torch API 训练模型 <<< ################################
-    net = network.net_linear_regression(len(true_w), generator)  # 网络结构
+    net = net_linear_regression(len(true_w), generator)  # 网络结构
     opt = optimizer.opt_sgd(net.parameters(), learn_rate, weight_decay)  # 优化器
     loss = loss_func.loss_squared()  # 损失函数
     uitls.train_regression(net, opt, loss, data, num_epochs, "torch")

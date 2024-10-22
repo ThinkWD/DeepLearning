@@ -1,3 +1,4 @@
+import numpy
 import torch
 
 
@@ -12,11 +13,6 @@ def try_gpu(i=0):
 #  特殊通用结构 自定义实现
 #
 ###########################################################
-def relu(X):
-    """激活函数 relu, 就是 max(x, 0)"""
-    return torch.max(X, torch.zeros_like(X))
-
-
 class BaseModel:
     def __init__(self):
         self.is_train = False
@@ -28,38 +24,49 @@ class BaseModel:
         self.is_train = False
 
 
+def relu(X):
+    """激活函数 relu, 就是 max(x, 0)"""
+    return torch.max(X, torch.zeros_like(X))
+
+
+def corr2d(X, K):
+    '''cross-correlation, 二维互相关运算. X 是输入, K 是卷积核. 两个都是 2D 矩阵'''
+    k_h, k_w = K.shape
+    Y = torch.zeros((X.shape[0] - k_h + 1, X.shape[1] - k_w + 1))
+    for i in range(Y.shape[0]):
+        for j in range(Y.shape[1]):
+            Y[i, j] = (X[i : i + k_h, j : j + k_w] * K).sum()
+    return Y
+
+
+def corr2d_multi_in(X, Kernel):
+    '''多通道的互相关运算. 先在每个通道上做二维互相关运算, 最后求和. 两个都是 3D 矩阵'''
+    return sum(corr2d(x, k) for x, k in zip(X, Kernel))
+
+
+def corr2d_multi_in_out(X, Kernel):
+    '''多输入+多输出的互相关运算. 使用 numpy.stack 将多个 2D 矩阵整合为 3D 矩阵'''
+    assert len(X.shape) == 3 and len(Kernel.shape) == 4
+    return numpy.stack([corr2d_multi_in(X, k) for k in Kernel], 0)
+
+
+class Conv2D(torch.nn.Module):
+    '''二维卷积层（只是一层，不是完整的网络）'''
+
+    def __init__(self, kernel_size):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.rand(kernel_size))
+        self.bias = torch.nn.Parameter(torch.zeros(1))
+
+    def forward(self, x):
+        return corr2d(x, self.weight) + self.bias
+
+
 ###########################################################
 #
 #  网络结构 自定义实现
 #
 ###########################################################
-def net_linear_regression(num_key_factors, generator=0.01):
-    """网络结构: 线性回归模型
-    Args:
-        num_key_factors (int): 影响模型结果的关键因素的数量
-        generator (float): 初始化参数使用的方差 (均值默认为 0)
-    """
-    net = torch.nn.Sequential(torch.nn.Linear(num_key_factors, 1))
-    net[0].weight.data.normal_(0, generator)  # w
-    net[0].bias.data.fill_(0)  # b
-    return net
-
-
-class net_linear_regression_custom(BaseModel):
-    def __init__(self, num_key_factors, generator=0.01):
-        """网络结构: 线性回归模型 的自定义实现
-        Args:
-            num_key_factors (int): 影响模型结果的关键因素的数量
-            generator (float): 初始化参数使用的方差 (均值默认为 0)
-        """
-        self.w = torch.normal(0, generator, size=(num_key_factors, 1), requires_grad=True)
-        self.b = torch.zeros(1, requires_grad=True)
-
-    def parameters(self):
-        return self.w, self.b
-
-    def __call__(self, X):
-        return torch.matmul(X, self.w) + self.b  # 没有前后处理, 只有一层输出层
 
 
 def net_softmax_regression(num_inputs, num_outputs):
