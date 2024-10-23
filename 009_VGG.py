@@ -28,11 +28,11 @@ def VGG(in_channels, num_outputs):
     # VGG 块：3*3卷积(填充1，n层m通道可调)，2*2池化(步幅2)。
     # VGG 架构：多个 VGG 块后接全连接层。不同次数的重复块得到不同的架构，VGG-16, VGG-19。
 
-    layers = []
-    # vgg 块部分。设计思想就是分成几个块，每个块都是宽高减半，通道翻倍。(除了最后一块)
+    # VGG 块结构定义。设计思想就是分成几个块，每个块都是宽高减半，通道翻倍。(除了最后一块)
     VGG_19 = ((2, 64), (2, 128), (4, 256), (4, 512), (4, 512))  # 标准 VGG-19 结构
     VGG_16 = ((2, 64), (2, 128), (3, 256), (3, 512), (3, 512))  # 标准 VGG-16 结构
     VGG_11 = ((1, 16), (1, 32), (2, 64), (2, 128), (2, 128))  # 自定义的 'VGG-11' 结构，用于演示
+    layers = []
     last_in_channels = in_channels
     for num_convs, out_channels in VGG_11:
         layers.extend(vgg_block(num_convs, last_in_channels, out_channels))
