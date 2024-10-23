@@ -1,4 +1,5 @@
 import torch
+import torchsummary
 from lx_module import dataset
 from lx_module import optimizer
 from lx_module import network
@@ -46,9 +47,10 @@ def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout=[])
             torch.nn.init.xavier_normal_(m.weight)
 
     net.apply(init_weights)
-    # for name, param in net.named_parameters():
-    #     print(f"{name:>12}: {param.shape}")
-    return net.to(device=uitls.try_gpu())
+    net = net.to(device=uitls.try_gpu())
+    # 打印网络结构, 每层的输出大小及参数量
+    torchsummary.summary(net, input_size=(1, num_inputs))
+    return net
 
 
 class net_multilayer_perceptrons_custom(network.BaseModel):

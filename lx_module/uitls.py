@@ -105,17 +105,16 @@ def evaluate(net, loss, data_iter):
     net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
     device = try_gpu()
     for X, y in data_iter:
-        X = X.to(device)
+        X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
         y = y.to(device)
-        y_hat = net(X)  # 计算梯度
-        # y = y.reshape(y_hat.shape)
+        y_hat = net(X)
         l = loss(y_hat, y)  # 这个批次的损失
-        if isinstance(loss, torch.nn.Module):
-            num_loss += float(l) * len(y)
-            num_samples += y.size().numel()
+        if isinstance(loss, torch.nn.Module):  # 更新统计
+            num_loss += float(l) * len(y)  # 更新总损失
+            num_samples += y.size().numel()  # 更新总样本数
         else:
-            num_loss += float(l.sum())
-            num_samples += y.numel()
+            num_loss += float(l.sum())  # 更新总损失
+            num_samples += y.numel()  # 更新总样本数
         num_accuracy += accuracy(y_hat, y)  # 这个批次预测正确的数量
     return num_loss / num_samples, num_accuracy / num_samples  # 返回损失和精度
 
@@ -128,26 +127,23 @@ def train_epoch(net, opt, loss, train_iter):
     net.train()  # 将模型设置为训练模式: 更新参数, 应用丢弃法
     device = try_gpu()
     for X, y in train_iter:
-        X = X.to(device)
+        X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
         y = y.to(device)
-        y_hat = net(X)  # 计算梯度并更新参数
-        # y = y.reshape(y_hat.shape)
+        y_hat = net(X)
         l = loss(y_hat, y)  # 这个批次的损失
-        # 计算梯度
-        if isinstance(opt, torch.optim.Optimizer):
+        if isinstance(opt, torch.optim.Optimizer):  # 计算梯度
             opt.zero_grad()  # 清空上次的梯度
             l.mean().backward()  # 根据损失函数计算梯度
             opt.step()  # 根据梯度更新参数
-            num_samples += y.size().numel()  # 更新总样本数
         else:
             l.sum().backward()  # 根据损失函数计算梯度
             opt(X.shape[0])  # 根据梯度更新参数
-            num_samples += y.numel()  # 更新总样本数
-        # 更新统计
-        if isinstance(loss, torch.nn.Module):
+        if isinstance(loss, torch.nn.Module):  # 更新统计
             num_loss += float(l) * len(y)  # 更新总损失
+            num_samples += y.size().numel()  # 更新总样本数
         else:
             num_loss += float(l.sum())  # 更新总损失
+            num_samples += y.numel()  # 更新总样本数
         num_accuracy += accuracy(y_hat, y)  # 这个批次预测正确的数量
     return num_loss / num_samples, num_accuracy / num_samples  # 返回损失和精度
 

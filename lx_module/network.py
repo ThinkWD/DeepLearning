@@ -65,6 +65,18 @@ def corr2d_multi_in_out(X, Kernel):
     return numpy.stack([corr2d_multi_in(X, k) for k in Kernel], 0)
 
 
+def pool2d(X, pool_size, mode='avg'):
+    p_h, p_w = pool_size
+    Y = torch.zeros((X.shape[0] - p_h + 1, X.shape[1] - p_w + 1), device=X.device)
+    for i in range(Y.shape[0]):
+        for j in range(Y.shape[1]):
+            if mode == 'max':
+                Y[i, j] = X[i : i + p_h, j : j + p_w].max()
+            elif mode == 'avg':
+                Y[i, j] = X[i : i + p_h, j : j + p_w].mean()
+    return Y
+
+
 class Conv2D(torch.nn.Module):
     '''二维卷积层'''
 
