@@ -169,7 +169,6 @@ def train_classification(net, opt, loss, data, num_epochs, log="log"):
         f"test loss: {test_loss:.6f}, test accuracy: {test_acc:.6f}\n\n"
     )
     animator.save(f"./animator_{log}.jpg")
-    data.gen_preview_image(save_path=f"./preview_{log}.jpg", net=net)
 
 
 def train_regression(net, opt, loss, data, num_epochs, log="log"):

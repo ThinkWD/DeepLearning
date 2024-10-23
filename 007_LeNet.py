@@ -7,32 +7,25 @@ from lx_module import loss_func
 from lx_module import uitls
 
 
-###########################################################################
-#
-#
-#   一个简单的尝试，网络结构是 卷积层 + rule + 2D全连接层 + softmax, 做分类任务
-#
-#
-###########################################################################
 class Reshape(torch.nn.Module):
     def forward(self, X):
         return X.view(-1, 1, 28, 28)
 
 
 def LeNet(num_outputs):
-    """
-    设计思想：层的宽高越来越小，通道数越来越多。不停把空间信息压缩变小，然后把抽出来的压缩的信息放到不同的通道中。
-    """
-    # 虽然 ReLU 和最大池化层更有效，但它们在20世纪90年代还没有出现。
+    # 最早的完整卷积神经网络, 与手写数字数据集 MNIST 一起提出, 做分类任务.
+    # 设计思想: 卷积+激活+池化 结构, 减输出尺寸, 加输出通道.
+    # 直观理解: 不停把空间信息压缩变小, 然后把抽出来的压缩的信息放到不同的通道中.
+    # 虽然 ReLU 和最大池化层更有效, 但它们在20世纪90年代还没有出现.
     net = torch.nn.Sequential(
         # 预处理, 将输入裁剪到单通道 28*28, 以适应不同的数据集
         Reshape(),
-        # 第一部分, 卷积+激活+池化, 输出维度减半, 输出通道变成 6
-        torch.nn.Conv2d(1, 6, kernel_size=5, padding=2),  # [6, 28, 28] (填充，宽高不变)
+        # 第一部分, 卷积+激活+池化, 减输出尺寸, 加输出通道
+        torch.nn.Conv2d(1, 6, kernel_size=5, padding=2),  # [6, 28, 28] (填充 2，宽高不变)
         torch.nn.Sigmoid(),
         torch.nn.AvgPool2d(kernel_size=2, stride=2),  # [6, 14, 14] (步幅 2, 宽高减半)
-        # 第二部分, 卷积+激活+池化, 输出维度减半, 输出通道变成 16
-        torch.nn.Conv2d(6, 16, kernel_size=5),  # [16, 10, 10] (没有填充，宽高减 4)
+        # 第二部分, 卷积+激活+池化, 减输出尺寸, 加输出通道
+        torch.nn.Conv2d(6, 16, kernel_size=5),  # [16, 10, 10] (无填充，宽高减 4)
         torch.nn.Sigmoid(),
         torch.nn.AvgPool2d(kernel_size=2, stride=2),  # [16, 5, 5] (步幅 2, 宽高减半)
         # 第三部分, 展平+MLP, 输出分类结果
@@ -41,7 +34,7 @@ def LeNet(num_outputs):
         torch.nn.Sigmoid(),
         torch.nn.Linear(120, 84),  # 84
         torch.nn.Sigmoid(),
-        torch.nn.Linear(84, num_outputs),  # num_outputs
+        torch.nn.Linear(84, num_outputs),  # 类别数量
     )
 
     # [xavier 初始化] 参数初始化函数: 当 m 是 torch.nn.Linear 权重时执行 xavier 初始化
