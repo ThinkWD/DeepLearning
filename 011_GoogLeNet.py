@@ -64,7 +64,7 @@ def GoogLeNet(in_channels, num_outputs):
     # 它的缺点是过于复杂，超参数太多，因此不是特别受欢迎
     # https://blog.csdn.net/shuzfan/article/details/50738394
 
-    # stage1: 宽高减半两次，通道 in_channels -> 192
+    # stage1: 通用起始阶段，快速降低尺寸。宽高减半两次，通道 in_channels -> 64
     stage1 = torch.nn.Sequential(
         torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),  # 宽高减半
         torch.nn.ReLU(),
