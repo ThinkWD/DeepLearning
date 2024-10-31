@@ -45,13 +45,13 @@ class Bottleneck(torch.nn.Module):
         super().__init__()
         mid_channels = out_channels // expansion
         # 附加层1
-        self.conv1 = torch.nn.Conv2d(in_channels, mid_channels, kernel_size=1, padding=1)
+        self.conv1 = torch.nn.Conv2d(in_channels, mid_channels, kernel_size=1)
         self.bn1 = torch.nn.BatchNorm2d(mid_channels)
         # 附加层2
         self.conv2 = torch.nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1, stride=strides)
         self.bn2 = torch.nn.BatchNorm2d(mid_channels)
         # 附加层3
-        self.conv3 = torch.nn.Conv2d(mid_channels, out_channels, kernel_size=1, padding=1)
+        self.conv3 = torch.nn.Conv2d(mid_channels, out_channels, kernel_size=1)
         self.bn3 = torch.nn.BatchNorm2d(out_channels)
         # 降采样：是否使用 1*1 卷积层来同步输出的形状。如果附加层改变了图像尺寸或通道数，就需要同步。
         self.downsample = None
@@ -64,7 +64,7 @@ class Bottleneck(torch.nn.Module):
     def forward(self, X):
         # 附加层(正常串联通路: X -> conv1 -> bn1 -> relu -> conv2 -> bn2 -> relu -> conv3 -> bn3)
         Y = torch.nn.functional.relu(self.bn1(self.conv1(X)))
-        Y = torch.nn.functional.relu(self.bn2(self.conv2(X)))
+        Y = torch.nn.functional.relu(self.bn2(self.conv2(Y)))
         Y = self.bn3(self.conv3(Y))
         # 同步输出形状
         if self.downsample is not None:
@@ -130,6 +130,11 @@ def ResNet(depth, in_channels, out_channels):
     net = net.to(device=uitls.try_gpu())
     # 打印网络结构, 每层的输出大小及参数量
     torchsummary.summary(net, input_size=(in_channels, 96, 96))
+    # 简单四个模块的输出
+    X = torch.randn(1, in_channels, 96, 96, device=uitls.try_gpu())
+    for layer in net:
+        X = layer(X)
+        print(f'{layer.__class__.__name__:>20} -> {X.shape}')
     return net
 
 
