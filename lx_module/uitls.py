@@ -149,7 +149,7 @@ def train_epoch(net, opt, loss, train_iter):
 
 
 def train_classification(net, opt, loss, data, num_epochs, log="log"):
-    animator = Animator(ylim=[0.2, 1], legend=['train loss', 'train acc', 'test loss', 'test acc'])
+    animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test loss', 'test acc'])
     train_iter, test_iter = data.get_iter()
     for ep in range(1, num_epochs + 1):
         test_loss, test_acc = evaluate(net, loss, test_iter)
