@@ -45,7 +45,7 @@ def net_multilayer_perceptrons(num_inputs, num_outputs, num_hiddens, dropout=[])
     # [xavier 初始化] 参数初始化函数: 当 m 是 torch.nn.Linear 权重时执行 xavier 初始化
     def init_weights(m):
         if isinstance(m, torch.nn.Linear):
-            torch.nn.init.xavier_normal_(m.weight)
+            torch.nn.init.xavier_uniform_(m.weight)
 
     net.apply(init_weights)
     # for name, param in net.named_parameters():

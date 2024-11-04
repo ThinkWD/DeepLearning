@@ -1,7 +1,7 @@
 import time
+import numpy
 import torch
 import pandas
-import numpy as np
 import torchvision  # 对于计算机视觉实现的一个库
 import matplotlib.pyplot as plt
 
@@ -10,6 +10,29 @@ def try_gpu(i=0):
     if torch.cuda.device_count() >= i + 1:
         return torch.device(f'cuda:{i}')
     return torch.device('cpu')
+
+
+def show_images(imgs, num_rows, num_cols, titles=None, scale=1, save_path=None):
+    figsize = (num_cols * scale, num_rows * scale)
+    _, axes = plt.subplots(num_rows, num_cols, figsize=figsize)
+    axes = axes.flatten()
+    for i, (ax, img) in enumerate(zip(axes, imgs)):
+        try:
+            img = img.detach().cpu().numpy()
+            if img.ndim == 3 and img.shape[0] in [1, 3, 4]:
+                img = numpy.transpose(img, (1, 2, 0))
+        except:
+            pass
+        ax.imshow(img)
+        ax.axes.get_xaxis().set_visible(False)
+        ax.axes.get_yaxis().set_visible(False)
+        if titles:
+            ax.set_title(titles[i])
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
+    else:
+        plt.show()
 
 
 ###########################################################
@@ -55,7 +78,7 @@ def get_k_fold_data(K, i, X, y):
 
 
 class Dataset_GaussianDistribution(object):
-    def __init__(self, true_w, true_b, train_examples, test_examples, batch_size=10, num_workers=8):
+    def __init__(self, true_w, true_b, train_examples, test_examples, batch_size=10, num_workers=4):
         """高斯分布数据集 (y = X * w + b + 噪声)
         Returns:
             X (矩阵, 形状为[num_examples, len(weight)]): 生成的数据.
@@ -89,19 +112,8 @@ class Dataset_GaussianDistribution(object):
 
 # 一个简单的服装分类数据集
 class Dataset_FashionMNIST(object):
-    def __init__(self, batch_size=64, num_workers=8, pipeline=defult_pipeline, save_path="./dataset"):
-        self.text_labels = [
-            't-shirt',
-            'trouser',
-            'pullover',
-            'dress',
-            'coat',
-            'sandal',
-            'shirt',
-            'sneaker',
-            'bag',
-            'ankle boot',
-        ]
+    def __init__(self, batch_size=64, num_workers=4, pipeline=defult_pipeline, save_path="./dataset"):
+        self.labels = ['t-shirt', 'trouser', 'pullover', 'dress', 'coat', 'sandal', 'shirt', 'sneaker', 'bag', 'boot']
         self.batch_size = batch_size
         self.num_workers = num_workers
         # 初始化 pipeline.
@@ -120,28 +132,19 @@ class Dataset_FashionMNIST(object):
         return train, test
 
     def gen_preview_image(self, save_path=None, num_rows=5, num_cols=5, scale=1.5, net=None):
-        figsize = (num_cols * scale, num_rows * scale)
-        _, axes = plt.subplots(num_rows, num_cols, figsize=figsize)
-        for i in range(num_rows):
-            for j in range(num_cols):
-                img = self.train[i * num_cols + j][0]
-                if torch.is_tensor(img):
-                    img = img.numpy()
-                axes[i, j].imshow(np.squeeze(img))
-                axes[i, j].axis('off')
-                tittle = self.text_labels[self.train[i * num_cols + j][1]]
-                if net:
-                    y_hat_index = net(self.train[i * num_cols + j][0].to(try_gpu())).argmax(axis=1)
-                    tittle = f"{tittle}\n{self.text_labels[y_hat_index]}"
-                axes[i, j].set_title(tittle)
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path)
-        else:
-            plt.show()
+        tittles = []
+        indices = range(num_rows * num_cols)
+        for idx in indices:
+            title = self.labels[self.train[idx][1]]
+            if net:
+                y_hat_index = net(self.train[idx][0].to(try_gpu())).argmax(axis=1).item()
+                title = f"y: {title}\ny_hat: {self.labels[y_hat_index]}"
+            tittles.append(title)
+        imgs = [self.train[idx][0] for idx in indices]
+        show_images(imgs, num_rows, num_cols, tittles, scale, save_path)
 
     def time_test_dataloader(self, batch_size, num_workers):
-        train, test = self.get_iter(batch_size, num_workers)
+        train, _ = self.get_iter(batch_size, num_workers)
         time_start = time.time()
         for X, y in train:
             continue
@@ -151,7 +154,7 @@ class Dataset_FashionMNIST(object):
 
 # kaggle 房价预测数据集: https://www.kaggle.com/c/house-prices-advanced-regression-techniques
 class Dataset_HousePricesAdvanced(object):
-    def __init__(self, batch_size=64, num_workers=8, save_path="./dataset"):
+    def __init__(self, batch_size=64, num_workers=4, save_path="./dataset"):
         self.batch_size = batch_size
         self.num_workers = num_workers
 
@@ -217,3 +220,38 @@ class Dataset_HousePricesAdvanced(object):
         train_dataset = torch.utils.data.TensorDataset(*train_arrays)
         train_iter = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=num_workers)
         return train_iter
+
+
+# CIFAR10 彩色分类数据集
+class Dataset_CIFAR10(object):
+    def __init__(self, batch_size=64, num_workers=4, pipeline=defult_pipeline, save_path="./dataset"):
+        self.labels = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        # 初始化 pipeline.
+        transforms = torchvision.transforms.Compose(pipeline)
+        # 通过内置函数下载数据集到 save_path 目录下
+        self.train = torchvision.datasets.CIFAR10(root=save_path, train=True, transform=transforms, download=True)
+        self.test = torchvision.datasets.CIFAR10(root=save_path, train=False, transform=transforms, download=True)
+        print(f'CIFAR10 Original Shape -> {self.train[0][0].shape}\n')
+
+    def get_iter(self, batch_size=0, num_workers=0):
+        if batch_size <= 0:
+            batch_size = self.batch_size
+        if num_workers <= 0:
+            num_workers = self.num_workers
+        train = torch.utils.data.DataLoader(self.train, batch_size, shuffle=True, num_workers=num_workers)
+        test = torch.utils.data.DataLoader(self.test, batch_size, shuffle=False, num_workers=num_workers)
+        return train, test
+
+    def gen_preview_image(self, save_path=None, num_rows=5, num_cols=5, scale=1.5, net=None):
+        tittles = []
+        indices = range(num_rows * num_cols)
+        for idx in indices:
+            title = self.labels[self.train[idx][1]]
+            if net:
+                y_hat_index = net(self.train[idx][0].to(try_gpu())).argmax(axis=1).item()
+                title = f"y: {title}\ny_hat: {self.labels[y_hat_index]}"
+            tittles.append(title)
+        imgs = [self.train[idx][0] for idx in indices]
+        show_images(imgs, num_rows, num_cols, tittles, scale, save_path)

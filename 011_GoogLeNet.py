@@ -110,7 +110,7 @@ def GoogLeNet(in_channels, num_outputs):
     # [xavier 初始化] 参数初始化函数: 当 m 是 torch.nn.Linear 权重时执行 xavier 初始化
     def init_weights(m):
         if isinstance(m, torch.nn.Linear) or isinstance(m, torch.nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
+            torch.nn.init.xavier_uniform_(m.weight)
 
     net.apply(init_weights)
     net = net.to(device=uitls.try_gpu())
