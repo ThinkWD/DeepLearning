@@ -97,9 +97,8 @@ def log_rmse(net, loss, data_iter):
     return float(torch.sqrt(num_loss / num_samples))  # 返回相对损失
 
 
-def evaluate(net, loss, data_iter):
+def evaluate(net, data_iter):
     """计算在指定数据集上模型的损失和精度"""
-    num_loss = 0  # 训练损失
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
     net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
@@ -107,16 +106,9 @@ def evaluate(net, loss, data_iter):
     for X, y in data_iter:
         X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
         y = y.to(device)
-        y_hat = net(X)
-        l = loss(y_hat, y)  # 这个批次的损失
-        if isinstance(loss, torch.nn.Module):  # 更新统计
-            num_loss += float(l) * len(y)  # 更新总损失
-            num_samples += y.size().numel()  # 更新总样本数
-        else:
-            num_loss += float(l.sum())  # 更新总损失
-            num_samples += y.numel()  # 更新总样本数
-        num_accuracy += accuracy(y_hat, y)  # 这个批次预测正确的数量
-    return num_loss / num_samples, num_accuracy / num_samples  # 返回损失和精度
+        num_samples += y.numel()
+        num_accuracy += accuracy(net(X), y)
+    return num_accuracy / num_samples
 
 
 def train_epoch(net, opt, loss, train_iter):
@@ -135,60 +127,35 @@ def train_epoch(net, opt, loss, train_iter):
             opt.zero_grad()  # 清空上次的梯度
             l.mean().backward()  # 根据损失函数计算梯度
             opt.step()  # 根据梯度更新参数
+            num_loss += float(l) * len(y)  # 更新总损失
         else:
             l.sum().backward()  # 根据损失函数计算梯度
             opt(X.shape[0])  # 根据梯度更新参数
-        if isinstance(loss, torch.nn.Module):  # 更新统计
-            num_loss += float(l) * len(y)  # 更新总损失
-            num_samples += y.size().numel()  # 更新总样本数
-        else:
             num_loss += float(l.sum())  # 更新总损失
-            num_samples += y.numel()  # 更新总样本数
+        num_samples += y.numel()  # 更新总样本数
         num_accuracy += accuracy(y_hat, y)  # 这个批次预测正确的数量
     return num_loss / num_samples, num_accuracy / num_samples  # 返回损失和精度
 
 
 def train_classification(net, opt, loss, data, num_epochs, log="log"):
-    animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test loss', 'test acc'])
+    animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test acc'])
     train_iter, test_iter = data.get_iter()
     for ep in range(1, num_epochs + 1):
-        test_loss, test_acc = evaluate(net, loss, test_iter)
         train_loss, train_acc = train_epoch(net, opt, loss, train_iter)
-        animator.add(ep, (train_loss, train_acc, test_loss, test_acc))
+        test_acc = evaluate(net, test_iter)
+        animator.add(ep, (train_loss, train_acc, test_acc))
         print(
-            f"[{log}] epoch {ep:>5}, "
-            f"train loss: {train_loss:.6f}, train accuracy: {train_acc:.6f}, "
-            f"test loss: {test_loss:.6f}, test accuracy: {test_acc:.6f}"
+            f"[{log}] epoch {ep:>3}, train loss: {train_loss:.6f}, "
+            f"train accuracy: {train_acc:.6f}, test accuracy: {test_acc:.6f}"
         )
-    test_loss, test_acc = evaluate(net, loss, test_iter)
-    train_loss, train_acc = evaluate(net, loss, train_iter)
-    animator.add(num_epochs + 1, (train_loss, train_acc, test_loss, test_acc))
-    print(
-        f"[{log}] Training completed, "
-        f"train loss: {train_loss:.6f}, train accuracy: {train_acc:.6f}, "
-        f"test loss: {test_loss:.6f}, test accuracy: {test_acc:.6f}\n\n"
-    )
     animator.save(f"./animator_{log}.jpg")
 
 
 def train_regression(net, opt, loss, data, num_epochs, log="log"):
-    animator = Animator(yscale='log', legend=['train loss', 'test loss'])
+    animator = Animator(yscale='log', legend=['train loss'])
     train_iter, test_iter = data.get_iter()
     for ep in range(1, num_epochs + 1):
-        test_loss, _ = evaluate(net, loss, test_iter)
         train_loss, _ = train_epoch(net, opt, loss, train_iter)
-        animator.add(ep, (train_loss, test_loss))
-        print(
-            f"[{log}] epoch {ep:>5}, "
-            f"train loss: {train_loss:.6f}, "  # "train accuracy: {train_acc:.6f}, "
-            f"test loss: {test_loss:.6f}"  # ", test accuracy: {test_acc:.6f}"
-        )
-    test_loss, _ = evaluate(net, loss, test_iter)
-    train_loss, _ = evaluate(net, loss, train_iter)
-    animator.add(num_epochs + 1, (train_loss, test_loss))
-    print(
-        f"[{log}] Training completed, "
-        f"train loss: {train_loss:.6f}, "  # "train accuracy: {train_acc:.6f}, "
-        f"test loss: {test_loss:.6f}\n\n"  # "test accuracy: {test_acc:.6f}\n\n"
-    )
+        animator.add(ep, (train_loss))
+        print(f"[{log}] epoch {ep:>3}, train loss: {train_loss:.6f}")
     animator.save(f"./animator_{log}.jpg")

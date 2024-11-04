@@ -229,10 +229,11 @@ class Dataset_CIFAR10(object):
         self.batch_size = batch_size
         self.num_workers = num_workers
         # 初始化 pipeline.
-        transforms = torchvision.transforms.Compose(pipeline)
+        train_augs = torchvision.transforms.Compose(pipeline)
+        test_augs = torchvision.transforms.Compose(defult_pipeline)
         # 通过内置函数下载数据集到 save_path 目录下
-        self.train = torchvision.datasets.CIFAR10(root=save_path, train=True, transform=transforms, download=True)
-        self.test = torchvision.datasets.CIFAR10(root=save_path, train=False, transform=transforms, download=True)
+        self.train = torchvision.datasets.CIFAR10(root=save_path, train=True, transform=train_augs, download=True)
+        self.test = torchvision.datasets.CIFAR10(root=save_path, train=False, transform=test_augs, download=True)
         print(f'CIFAR10 Original Shape -> {self.train[0][0].shape}\n')
 
     def get_iter(self, batch_size=0, num_workers=0):

@@ -129,6 +129,7 @@ def ResNet(depth, in_channels, out_channels):
     # 简单四个模块的输出
     X = torch.randn(1, in_channels, 96, 96, device=try_gpu())
     print(f'Original input shape -> {X.shape}')
+    net.eval()
     for layer in net:
         X = layer(X)
         print(f'{layer.__class__.__name__:>20} -> {X.shape}')
