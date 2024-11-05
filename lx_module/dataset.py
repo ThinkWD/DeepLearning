@@ -224,13 +224,13 @@ class Dataset_HousePricesAdvanced(object):
 
 # CIFAR10 彩色分类数据集
 class Dataset_CIFAR10(object):
-    def __init__(self, batch_size=64, num_workers=4, pipeline=defult_pipeline, save_path="./dataset"):
+    def __init__(self, batch_size=64, num_workers=4, train_augs=None, test_augs=None, save_path="./dataset"):
         self.labels = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
         self.batch_size = batch_size
         self.num_workers = num_workers
         # 初始化 pipeline.
-        train_augs = torchvision.transforms.Compose(pipeline)
-        test_augs = torchvision.transforms.Compose(defult_pipeline)
+        train_augs = torchvision.transforms.Compose(train_augs if train_augs else defult_pipeline)
+        test_augs = torchvision.transforms.Compose(test_augs if test_augs else defult_pipeline)
         # 通过内置函数下载数据集到 save_path 目录下
         self.train = torchvision.datasets.CIFAR10(root=save_path, train=True, transform=train_augs, download=True)
         self.test = torchvision.datasets.CIFAR10(root=save_path, train=False, transform=test_augs, download=True)

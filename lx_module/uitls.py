@@ -1,3 +1,4 @@
+import time
 import torch
 from matplotlib import pyplot as plt
 
@@ -18,6 +19,28 @@ def set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend):
     if legend:
         axes.legend(legend)
     axes.grid()
+
+
+class Timer:
+    def __init__(self):
+        self.times = []
+        self.start()
+
+    def start(self):
+        self.tik = time.time()
+
+    def stop(self):
+        self.times.append(time.time() - self.tik)
+        return self.times[-1]
+
+    def avg(self):
+        return sum(self.times) / len(self.times)
+
+    def sum(self):
+        return sum(self.times)
+
+    def reset(self):
+        self.times = []
 
 
 class Animator:
@@ -97,65 +120,82 @@ def log_rmse(net, loss, data_iter):
     return float(torch.sqrt(num_loss / num_samples))  # 返回相对损失
 
 
-def evaluate(net, data_iter):
+def evaluate(net, data_iter, device=try_gpu()):
     """计算在指定数据集上模型的损失和精度"""
     num_samples = 0  # 样本总数
     num_accuracy = 0  # 预测正确的样本数
     net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
-    device = try_gpu()
-    for X, y in data_iter:
-        X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
-        y = y.to(device)
-        num_samples += y.numel()
-        num_accuracy += accuracy(net(X), y)
+    with torch.no_grad():
+        for X, y in data_iter:
+            X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
+            y = y.to(device)
+            num_samples += y.numel()
+            num_accuracy += accuracy(net(X), y)
     return num_accuracy / num_samples
 
 
-def train_epoch(net, opt, loss, train_iter):
-    """训练模型一个迭代周期 (此函数返回的是参数更新前的损失和精度, 算完后参数被更新)"""
-    num_loss = 0  # 训练损失
-    num_samples = 0  # 样本总数
-    num_accuracy = 0  # 预测正确的样本数
+def train_batch(net, opt, loss, X, y, device=try_gpu()):
+    X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
+    y = y.to(device)
     net.train()  # 将模型设置为训练模式: 更新参数, 应用丢弃法
-    device = try_gpu()
-    for X, y in train_iter:
-        X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
-        y = y.to(device)
-        y_hat = net(X)
-        l = loss(y_hat, y)  # 这个批次的损失
-        if isinstance(opt, torch.optim.Optimizer):  # 计算梯度
-            opt.zero_grad()  # 清空上次的梯度
-            l.mean().backward()  # 根据损失函数计算梯度
-            opt.step()  # 根据梯度更新参数
-            num_loss += float(l) * len(y)  # 更新总损失
-        else:
-            l.sum().backward()  # 根据损失函数计算梯度
-            opt(X.shape[0])  # 根据梯度更新参数
-            num_loss += float(l.sum())  # 更新总损失
-        num_samples += y.numel()  # 更新总样本数
-        num_accuracy += accuracy(y_hat, y)  # 这个批次预测正确的数量
-    return num_loss / num_samples, num_accuracy / num_samples  # 返回损失和精度
+    y_hat = net(X)
+    l = loss(y_hat, y)  # 这个批次的损失
+    if isinstance(opt, torch.optim.Optimizer):  # 计算梯度
+        opt.zero_grad()  # 清空上次的梯度
+        l.mean().backward()  # 根据损失函数计算梯度
+        opt.step()  # 根据梯度更新参数
+        num_loss = float(l) * len(y)  # 更新总损失
+    else:
+        l.sum().backward()  # 根据损失函数计算梯度
+        opt(X.shape[0])  # 根据梯度更新参数
+        num_loss = float(l.sum())  # 更新总损失
+    num_accuracy = accuracy(y_hat, y)  # 这个批次预测正确的数量
+    return num_loss, num_accuracy
 
 
 def train_classification(net, opt, loss, data, num_epochs, log="log"):
+    device = try_gpu()
+    train_iter, test_iter = data.get_iter()
+    timer = Timer()
+    num_batches = len(train_iter)
     animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test acc'])
-    train_iter, test_iter = data.get_iter()
     for ep in range(1, num_epochs + 1):
-        train_loss, train_acc = train_epoch(net, opt, loss, train_iter)
-        test_acc = evaluate(net, test_iter)
-        animator.add(ep, (train_loss, train_acc, test_acc))
-        print(
-            f"[{log}] epoch {ep:>3}, train loss: {train_loss:.6f}, "
-            f"train accuracy: {train_acc:.6f}, test accuracy: {test_acc:.6f}"
-        )
+        sum_loss = 0
+        sum_train_acc = 0
+        sum_examples = 0
+        sum_predictions = 0
+        timer.reset()
+        for i, (X, y) in enumerate(train_iter):
+            timer.start()
+            l, acc = train_batch(net, opt, loss, X, y, device)
+            sum_loss += l
+            sum_train_acc += acc
+            sum_examples += y.shape[0]
+            sum_predictions += y.numel()
+            timer.stop()
+            if (i + 1) % 50 == 0 or i == num_batches - 1:
+                train_loss = sum_loss / sum_examples
+                train_acc = sum_train_acc / sum_predictions
+                animator.add((ep - 1) + (i + 1) / num_batches, (train_loss, train_acc, None))
+                print(
+                    f"[{log}] epoch {ep:>3}, iter {i + 1:>4}, loss: {train_loss:.6f}, "
+                    f"train accuracy: {train_acc:.6f}, {sum_examples / timer.sum():.1f} examples/sec"
+                )
+        timer.reset()
+        timer.start()
+        test_acc = evaluate(net, test_iter, device)
+        timer.stop()
+        animator.add(ep, (None, None, test_acc))
+        print(f"[{log}] test accuracy: {test_acc:.6f}, {sum_examples / timer.sum():.1f} examples/sec")
+    print(f"[{log}] Completed, loss: {train_loss:.6f}, train accuracy: {train_acc:.6f}, test accuracy: {test_acc:.6f}")
     animator.save(f"./animator_{log}.jpg")
 
 
-def train_regression(net, opt, loss, data, num_epochs, log="log"):
-    animator = Animator(yscale='log', legend=['train loss'])
-    train_iter, test_iter = data.get_iter()
-    for ep in range(1, num_epochs + 1):
-        train_loss, _ = train_epoch(net, opt, loss, train_iter)
-        animator.add(ep, (train_loss))
-        print(f"[{log}] epoch {ep:>3}, train loss: {train_loss:.6f}")
-    animator.save(f"./animator_{log}.jpg")
+# def train_regression(net, opt, loss, data, num_epochs, log="log"):
+#     animator = Animator(yscale='log', legend=['train loss'])
+#     train_iter, test_iter = data.get_iter()
+#     for ep in range(1, num_epochs + 1):
+#         train_loss, _ = train_epoch(net, opt, loss, train_iter)
+#         animator.add(ep, (train_loss))
+#         print(f"[{log}] epoch {ep:>3}, train loss: {train_loss:.6f}")
+#     animator.save(f"./animator_{log}.jpg")
