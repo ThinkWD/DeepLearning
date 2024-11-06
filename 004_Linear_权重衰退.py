@@ -53,13 +53,14 @@ def main():
     true_w = torch.ones((200, 1)) * 0.01  # 0.01 乘以全 1 的向量
     true_b = 0.05
     data = dataset.Dataset_GaussianDistribution(true_w, true_b, 20, 100, batch_size)
+    train_iter, test_iter = data.get_iter()
     data.gen_preview_image(save_path=f"./preview_train.jpg")
 
     ### >>> 使用自定义实现训练模型 <<< ################################
     net = net_linear_regression_custom(len(true_w), generator)  # 网络结构
     opt = optimizer.opt_sgd_custom(net.parameters(), learn_rate, weight_decay)  # 优化器
     loss = loss_func.loss_squared_custom()  # 损失函数
-    uitls.train_regression(net, opt, loss, data, num_epochs, "custom")
+    uitls.train_regression(net, opt, loss, num_epochs, train_iter, test_iter, "custom")
     w, _ = net.parameters()
     print(f"[custom] w 的 L2 范数: {torch.norm(w).item()}\n\n")
 
@@ -67,7 +68,7 @@ def main():
     net = net_linear_regression(len(true_w), generator)  # 网络结构
     opt = optimizer.opt_sgd(net.parameters(), learn_rate, weight_decay)  # 优化器
     loss = loss_func.loss_squared()  # 损失函数
-    uitls.train_regression(net, opt, loss, data, num_epochs, "torch")
+    uitls.train_regression(net, opt, loss, num_epochs, train_iter, test_iter, "torch")
     w, _ = net.parameters()
     print(f"[torch] w 的 L2 范数: {torch.norm(w).item()}\n\n")
 

@@ -100,26 +100,6 @@ def accuracy(y_hat, y):
     return float(cmp.type(y.dtype).sum())  # 返回预测正确的数量
 
 
-def log_rmse(net, loss, data_iter):
-    """计算在指定数据集上模型的相对损失 (对于回归任务, 结果数量级差距较大时)"""
-    num_loss = 0  # 相对损失
-    num_samples = 0  # 样本总数
-    net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
-    device = try_gpu()
-    for X, y in data_iter:
-        X = X.to(device)
-        y = y.to(device)
-        y_hat = torch.clamp(net(X), 1, float('inf'))
-        l = loss(torch.log(y_hat), torch.log(y))
-        if isinstance(loss, torch.nn.Module):
-            num_loss += l * len(y)
-            num_samples += y.size().numel()
-        else:
-            num_loss += l.sum()
-            num_samples += y.numel()
-    return float(torch.sqrt(num_loss / num_samples))  # 返回相对损失
-
-
 def evaluate(net, data_iter, device=try_gpu()):
     """计算在指定数据集上模型的损失和精度"""
     num_samples = 0  # 样本总数
@@ -153,6 +133,13 @@ def train_batch(net, opt, loss, X, y, device=try_gpu()):
     return num_loss, num_accuracy
 
 
+###########################################################################
+#
+#
+#   分类任务
+#
+#
+###########################################################################
 def train_classification(net, opt, loss, data, num_epochs, log="log"):
     device = try_gpu()
     train_iter, test_iter = data.get_iter()
@@ -189,13 +176,62 @@ def train_classification(net, opt, loss, data, num_epochs, log="log"):
         print(f"[{log}] test accuracy: {test_acc:.6f}, {sum_examples / timer.sum():.1f} examples/sec")
     print(f"[{log}] Completed, loss: {train_loss:.6f}, train accuracy: {train_acc:.6f}, test accuracy: {test_acc:.6f}")
     animator.save(f"./animator_{log}.jpg")
+    return train_acc, test_acc
 
 
-# def train_regression(net, opt, loss, data, num_epochs, log="log"):
-#     animator = Animator(yscale='log', legend=['train loss'])
-#     train_iter, test_iter = data.get_iter()
-#     for ep in range(1, num_epochs + 1):
-#         train_loss, _ = train_epoch(net, opt, loss, train_iter)
-#         animator.add(ep, (train_loss))
-#         print(f"[{log}] epoch {ep:>3}, train loss: {train_loss:.6f}")
-#     animator.save(f"./animator_{log}.jpg")
+###########################################################################
+#
+#
+#   回归任务
+#
+#
+###########################################################################
+def evaluate_loss(net, loss, data_iter, using_log_loss=False, device=try_gpu()):
+    """计算在指定数据集上模型的损失 (回归任务)"""
+    net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
+    num_loss = 0  # 训练损失
+    num_samples = 0  # 样本总数
+    for X, y in data_iter:
+        X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
+        y = y.to(device)
+        y_hat = torch.clamp(net(X), 1, float('inf')) if using_log_loss else net(X)
+        l = loss(torch.log(y_hat), torch.log(y)) if using_log_loss else loss(y_hat, y)
+        if isinstance(loss, torch.nn.Module):
+            num_loss += l * len(y)
+            num_samples += y.size().numel()
+        else:
+            num_loss += l.sum()
+            num_samples += y.numel()
+    res_loss = num_loss / num_samples
+    return float(torch.sqrt(res_loss)) if using_log_loss else float(res_loss)
+
+
+def train_regression(net, opt, loss, num_epochs, train_iter, test_iter=None, log="log", using_log_loss=False):
+    device = try_gpu()
+    num_batches = len(train_iter)
+    animator = Animator(ylim=[0, 1], legend=['train loss', 'test loss'])
+    for ep in range(1, num_epochs + 1):
+        sum_train_loss = 0
+        sum_examples = 0
+        for i, (X, y) in enumerate(train_iter):
+            l, _ = train_batch(net, opt, loss, X, y, device)
+            if using_log_loss:
+                continue
+            sum_train_loss += l
+            sum_examples += y.numel()
+            if (i + 1) % 50 == 0 or i == num_batches - 1:
+                train_loss = sum_train_loss / sum_examples
+                animator.add((ep - 1) + (i + 1) / num_batches, (train_loss, None))
+                print(f"[{log}] epoch {ep:>3}, iter {i + 1:>4}, train loss: {train_loss:.6f}")
+        if using_log_loss:
+            train_loss = evaluate_loss(net, loss, train_iter, using_log_loss, device)
+            test_loss = evaluate_loss(net, loss, test_iter, using_log_loss, device) if test_iter else -1
+            animator.add(ep, (train_loss, test_loss))
+            print(f"[{log}] epoch {ep:>3}, train loss: {train_loss:.6f}, test loss: {test_loss:.6f}")
+        else:
+            test_loss = evaluate_loss(net, loss, test_iter, using_log_loss, device) if test_iter else -1
+            animator.add(ep, (None, test_loss))
+            print(f"[{log}] test loss: {test_loss:.6f}")
+    print(f"[{log}] Completed, train loss: {train_loss:.6f}, test loss: {test_loss:.6f}\n")
+    animator.save(f"./animator_{log}.jpg")
+    return train_loss, test_loss
