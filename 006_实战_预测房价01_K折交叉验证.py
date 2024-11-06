@@ -99,6 +99,8 @@ def train_and_pred(learn_rate, batch_size, num_epochs, weight_decay, num_hiddens
 
 
 # 最佳成绩: 0.13006
+# 继续优化思路：加入 BN 层(但 BN 层不改变精度)
+# 继续优化思路：在更大的数据集上训练，然后放到这个小数据集上微调
 if __name__ == "__main__":
     K_fold = 5  # (超参数) K 折交叉验证
     learn_rate = 0.0008  # (超参数)训练的学习率
