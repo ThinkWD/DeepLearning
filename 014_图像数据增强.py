@@ -19,22 +19,18 @@ def main():
     ### >>> 预览 augs 效果 <<< ###########################################
     # preview_augs(train_augs)
 
-    train_augs = [
-        # 缩放到指定大小 (这个数据集尺寸太小了，经过多次宽高减半后变得非常小，不利于训练，因此需要放大一下)
-        torchvision.transforms.Resize(96),
-        # 随机翻转_垂直方向 (慎用, 特定数据集可用)
-        # torchvision.transforms.RandomVerticalFlip(),
-        # 随机翻转_水平方向
-        torchvision.transforms.RandomHorizontalFlip(),
-        # 随机亮度_对比度_饱和度_色调
-        torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        # 随机裁切
-        torchvision.transforms.RandomResizedCrop((96, 96), scale=(0.2, 1), ratio=(0.5, 2)),
-        # 转为 tensor
-        torchvision.transforms.ToTensor(),
-    ]
-    # 测试时需要缩放到同样的尺寸
-    test_augs = [torchvision.transforms.Resize(96), torchvision.transforms.ToTensor()]
+    train_augs = torchvision.transforms.Compose(
+        [
+            # 这个数据集尺寸太小了，经过多次宽高减半后变得非常小，不利于训练，因此需要使用 Resize 放大一下
+            torchvision.transforms.Resize(96),  # 缩放到 96 * 96
+            torchvision.transforms.RandomResizedCrop(96),  # 随机裁切
+            # torchvision.transforms.RandomVerticalFlip(), # 垂直方向翻转
+            torchvision.transforms.RandomHorizontalFlip(),  # 水平方向翻转
+            torchvision.transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),
+            torchvision.transforms.ToTensor(),
+        ]
+    )
+    test_augs = torchvision.transforms.Compose([torchvision.transforms.Resize(96), torchvision.transforms.ToTensor()])
 
     ### >>> 初始化数据集和超参数 <<< ###########################################
     learn_rate = 0.001  # (超参数)训练的学习率
@@ -42,6 +38,7 @@ def main():
     batch_size = 256  # (超参数)训练的批大小 (一次读取的数据数量)
     num_workers = 8  # 加载数据集使用的工作线程数
     data = dataset.Dataset_CIFAR10(batch_size, num_workers, train_augs, test_augs)
+    train_iter, test_iter = data.get_iter()
 
     ### >>> 确定模型结构和超参数 <<< ###########################################
     net = ResNet(18, 3, 10)  # 输入通道数为 3, 输出类别数为 10
@@ -49,7 +46,7 @@ def main():
     loss = torch.nn.CrossEntropyLoss()
 
     ### >>> 开始训练 <<< ################################
-    uitls.train_classification(net, opt, loss, data, num_epochs, "ResNet_数据增强")
+    uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, "ResNet_数据增强")
 
 
 if __name__ == "__main__":

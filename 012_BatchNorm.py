@@ -58,6 +58,7 @@ def main():
     batch_size = 256  # (超参数)训练的批大小 (一次读取的数据数量)
     num_workers = 10  # 加载数据集使用的工作线程数
     data = dataset.Dataset_FashionMNIST(batch_size, num_workers)
+    train_iter, test_iter = data.get_iter()
 
     ### >>> 确定模型结构和超参数 <<< ###########################################
     net = LeNet_BatchNorm(10)  # 输出 (10 个类)
@@ -65,7 +66,7 @@ def main():
     loss = loss_func.loss_cross_entropy()
 
     ### >>> 开始训练 <<< ################################
-    uitls.train_classification(net, opt, loss, data, num_epochs, "LeNet_BatchNorm")
+    uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, "LeNet_BatchNorm")
 
 
 if __name__ == "__main__":

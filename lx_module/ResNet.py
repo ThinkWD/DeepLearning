@@ -128,9 +128,9 @@ def ResNet(depth: int, in_channels: int, num_classes: int) -> torch.nn.Sequentia
     net.apply(init_weights)
     net = net.to(device=try_gpu())
     # 打印网络结构, 每层的输出大小及参数量
-    torchsummary.summary(net, input_size=(in_channels, 96, 96))
+    torchsummary.summary(net, input_size=(in_channels, 224, 224))
     # 简单四个模块的输出
-    X = torch.randn(1, in_channels, 96, 96, device=try_gpu())
+    X = torch.randn(1, in_channels, 224, 224, device=try_gpu())
     print(f'Original input shape -> {X.shape}')
     net.eval()
     for layer in net:

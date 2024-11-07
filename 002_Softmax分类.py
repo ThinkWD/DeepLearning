@@ -56,6 +56,7 @@ def main():
     batch_size = 64  # (超参数)训练的批大小 (一次读取的数据数量)
     num_workers = 8  # 加载数据集使用的工作线程数
     data = dataset.Dataset_FashionMNIST(batch_size, num_workers)
+    train_iter, test_iter = data.get_iter()
 
     ### >>> 确定模型结构和超参数 <<< ###########################################
     image_width = 28
@@ -67,13 +68,13 @@ def main():
     net = net_softmax_regression_custom(num_inputs, num_classes)
     opt = optimizer.opt_sgd_custom(net.parameters(), learn_rate)
     loss = loss_func.loss_cross_entropy_custom()
-    uitls.train_classification(net, opt, loss, data, num_epochs, "custom")
+    uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, "custom")
 
     ### >>> 使用 torch API 训练模型 <<< ################################
     net = net_softmax_regression(num_inputs, num_classes)
     opt = optimizer.opt_sgd(net.parameters(), learn_rate)
     loss = loss_func.loss_cross_entropy()
-    uitls.train_classification(net, opt, loss, data, num_epochs, "torch")
+    uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, "torch")
 
 
 if __name__ == "__main__":

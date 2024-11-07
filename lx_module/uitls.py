@@ -140,9 +140,8 @@ def train_batch(net, opt, loss, X, y, device=try_gpu()):
 #
 #
 ###########################################################################
-def train_classification(net, opt, loss, data, num_epochs, log="log"):
+def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log="log"):
     device = try_gpu()
-    train_iter, test_iter = data.get_iter()
     timer = Timer()
     num_batches = len(train_iter)
     animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test acc'])

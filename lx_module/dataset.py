@@ -1,7 +1,10 @@
-import time
+import os
+import PIL
 import numpy
 import torch
 import pandas
+import sklearn
+import sklearn.model_selection
 import torchvision  # 对于计算机视觉实现的一个库
 import matplotlib.pyplot as plt
 
@@ -35,20 +38,24 @@ def show_images(imgs, num_rows, num_cols, titles=None, scale=1, save_path=None):
         plt.show()
 
 
+def generate_dataset_preview(dataset, num2label, save_path=None, num_rows=5, num_cols=5, scale=1, net=None):
+    tittles = []
+    indices = range(num_rows * num_cols)
+    for idx in indices:
+        title = num2label[dataset[idx][1]]
+        if net:
+            y_hat_index = net(dataset[idx][0].to(try_gpu())).argmax(axis=1).item()
+            title = f"y: {title}\ny_hat: {num2label[y_hat_index]}"
+        tittles.append(title)
+    imgs = [dataset[idx][0] for idx in indices]
+    show_images(imgs, num_rows, num_cols, tittles, scale, save_path)
+
+
 ###########################################################
 #
 #  数据集 自定义实现
 #
 ###########################################################
-
-
-defult_pipeline = [torchvision.transforms.ToTensor()]
-resize_pipeline = [
-    torchvision.transforms.Resize(64),
-    torchvision.transforms.ToTensor(),
-]
-
-
 def synthetic_data(w, b, num_examples):
     """Generate y = Xw + b + noise"""
     # 生成形状为 (num_examples, len(w)) 的矩阵, 矩阵用均值为 0 方差为 1 的随机数来填充
@@ -90,10 +97,8 @@ class Dataset_GaussianDistribution(object):
         self.test_X, self.test_y = synthetic_data(true_w, true_b, test_examples)
 
     def get_iter(self, batch_size=0, num_workers=0):
-        if batch_size <= 0:
-            batch_size = self.batch_size
-        if num_workers <= 0:
-            num_workers = self.num_workers
+        batch_size = self.batch_size if batch_size <= 0 else batch_size
+        num_workers = self.num_workers if num_workers <= 0 else num_workers
         train_arrays = (self.train_X, self.train_y)
         train_dataset = torch.utils.data.TensorDataset(*train_arrays)
         train_iter = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=num_workers)
@@ -112,44 +117,28 @@ class Dataset_GaussianDistribution(object):
 
 # 一个简单的服装分类数据集
 class Dataset_FashionMNIST(object):
-    def __init__(self, batch_size=64, num_workers=4, pipeline=defult_pipeline, save_path="./dataset"):
+    def __init__(self, batch_size, num_workers=4, train_augs=None, test_augs=None, save_path="./dataset"):
         self.labels = ['t-shirt', 'trouser', 'pullover', 'dress', 'coat', 'sandal', 'shirt', 'sneaker', 'bag', 'boot']
         self.batch_size = batch_size
         self.num_workers = num_workers
         # 初始化 pipeline.
-        transforms = torchvision.transforms.Compose(pipeline)
+        train_augs = train_augs if train_augs else torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
+        test_augs = test_augs if test_augs else torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
         # 通过内置函数下载数据集到 save_path 目录下
-        self.train = torchvision.datasets.FashionMNIST(root=save_path, train=True, transform=transforms, download=True)
-        self.test = torchvision.datasets.FashionMNIST(root=save_path, train=False, transform=transforms, download=True)
+        self.train = torchvision.datasets.FashionMNIST(root=save_path, train=True, transform=train_augs, download=True)
+        self.test = torchvision.datasets.FashionMNIST(root=save_path, train=False, transform=test_augs, download=True)
+        print(f'\nNumber of categories -> {len(self.labels)}')
+        print(f'Original Shape -> {self.train[0][0].shape}\n')
+
+    def generate_dataset_preview(self, save_path=None, num_rows=5, num_cols=5, scale=1, net=None):
+        generate_dataset_preview(self.train, self.labels, save_path, num_rows, num_cols, scale, net)
 
     def get_iter(self, batch_size=0, num_workers=0):
-        if batch_size <= 0:
-            batch_size = self.batch_size
-        if num_workers <= 0:
-            num_workers = self.num_workers
+        batch_size = self.batch_size if batch_size <= 0 else batch_size
+        num_workers = self.num_workers if num_workers <= 0 else num_workers
         train = torch.utils.data.DataLoader(self.train, batch_size, shuffle=True, num_workers=num_workers)
         test = torch.utils.data.DataLoader(self.test, batch_size, shuffle=False, num_workers=num_workers)
         return train, test
-
-    def gen_preview_image(self, save_path=None, num_rows=5, num_cols=5, scale=1.5, net=None):
-        tittles = []
-        indices = range(num_rows * num_cols)
-        for idx in indices:
-            title = self.labels[self.train[idx][1]]
-            if net:
-                y_hat_index = net(self.train[idx][0].to(try_gpu())).argmax(axis=1).item()
-                title = f"y: {title}\ny_hat: {self.labels[y_hat_index]}"
-            tittles.append(title)
-        imgs = [self.train[idx][0] for idx in indices]
-        show_images(imgs, num_rows, num_cols, tittles, scale, save_path)
-
-    def time_test_dataloader(self, batch_size, num_workers):
-        train, _ = self.get_iter(batch_size, num_workers)
-        time_start = time.time()
-        for X, y in train:
-            continue
-        time_end = time.time()
-        print(f'batch_size={batch_size}, num_workers={num_workers}, used_time={time_end - time_start:.2f} s')
 
 
 # kaggle 房价预测数据集: https://www.kaggle.com/c/house-prices-advanced-regression-techniques
@@ -195,10 +184,8 @@ class Dataset_HousePricesAdvanced(object):
         self.test_X = torch.tensor(all_features[train.shape[0] :].values, dtype=torch.float32)
 
     def get_k_fold_data_iter(self, K, i, batch_size=0, num_workers=0):
-        if batch_size <= 0:
-            batch_size = self.batch_size
-        if num_workers <= 0:
-            num_workers = self.num_workers
+        batch_size = self.batch_size if batch_size <= 0 else batch_size
+        num_workers = self.num_workers if num_workers <= 0 else num_workers
         train_X, train_y, test_X, test_y = get_k_fold_data(K, i, self.X, self.y)
         train_arrays = (train_X, train_y)
         train_dataset = torch.utils.data.TensorDataset(*train_arrays)
@@ -212,10 +199,8 @@ class Dataset_HousePricesAdvanced(object):
         return self.test, self.test_X
 
     def get_train_data_iter(self, batch_size=0, num_workers=0):
-        if batch_size <= 0:
-            batch_size = self.batch_size
-        if num_workers <= 0:
-            num_workers = self.num_workers
+        batch_size = self.batch_size if batch_size <= 0 else batch_size
+        num_workers = self.num_workers if num_workers <= 0 else num_workers
         train_arrays = (self.X, self.y)
         train_dataset = torch.utils.data.TensorDataset(*train_arrays)
         train_iter = torch.utils.data.DataLoader(train_dataset, batch_size, shuffle=True, num_workers=num_workers)
@@ -224,35 +209,82 @@ class Dataset_HousePricesAdvanced(object):
 
 # CIFAR10 彩色分类数据集
 class Dataset_CIFAR10(object):
-    def __init__(self, batch_size=64, num_workers=4, train_augs=None, test_augs=None, save_path="./dataset"):
+    def __init__(self, batch_size, num_workers=4, train_augs=None, test_augs=None, save_path="./dataset"):
         self.labels = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
         self.batch_size = batch_size
         self.num_workers = num_workers
         # 初始化 pipeline.
-        train_augs = torchvision.transforms.Compose(train_augs if train_augs else defult_pipeline)
-        test_augs = torchvision.transforms.Compose(test_augs if test_augs else defult_pipeline)
+        train_augs = train_augs if train_augs else torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
+        test_augs = test_augs if test_augs else torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
         # 通过内置函数下载数据集到 save_path 目录下
         self.train = torchvision.datasets.CIFAR10(root=save_path, train=True, transform=train_augs, download=True)
         self.test = torchvision.datasets.CIFAR10(root=save_path, train=False, transform=test_augs, download=True)
-        print(f'CIFAR10 Original Shape -> {self.train[0][0].shape}\n')
+        print(f'\nNumber of categories -> {len(self.labels)}')
+        print(f'Original Shape -> {self.train[0][0].shape}\n')
+
+    def generate_dataset_preview(self, save_path=None, num_rows=5, num_cols=5, scale=1, net=None):
+        generate_dataset_preview(self.train, self.labels, save_path, num_rows, num_cols, scale, net)
 
     def get_iter(self, batch_size=0, num_workers=0):
-        if batch_size <= 0:
-            batch_size = self.batch_size
-        if num_workers <= 0:
-            num_workers = self.num_workers
+        batch_size = self.batch_size if batch_size <= 0 else batch_size
+        num_workers = self.num_workers if num_workers <= 0 else num_workers
         train = torch.utils.data.DataLoader(self.train, batch_size, shuffle=True, num_workers=num_workers)
         test = torch.utils.data.DataLoader(self.test, batch_size, shuffle=False, num_workers=num_workers)
         return train, test
 
-    def gen_preview_image(self, save_path=None, num_rows=5, num_cols=5, scale=1.5, net=None):
-        tittles = []
-        indices = range(num_rows * num_cols)
-        for idx in indices:
-            title = self.labels[self.train[idx][1]]
-            if net:
-                y_hat_index = net(self.train[idx][0].to(try_gpu())).argmax(axis=1).item()
-                title = f"y: {title}\ny_hat: {self.labels[y_hat_index]}"
-            tittles.append(title)
-        imgs = [self.train[idx][0] for idx in indices]
-        show_images(imgs, num_rows, num_cols, tittles, scale, save_path)
+
+class Custom_Image_Dataset(torch.utils.data.Dataset):
+    def __init__(self, root_path, csv_file, transform=None):
+        self.root_path = root_path
+        self.transform = transform if transform else torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
+        # 图片
+        data_frame = pandas.read_csv(os.path.join(self.root_path, csv_file))
+        self.image_set = numpy.asarray(data_frame.iloc[1:, 0])
+        self.set_length = len(self.image_set)
+        # 标签
+        self.labels, self.label_set = None, None
+        if 'label' in data_frame.columns:
+            text_labels = numpy.asarray(data_frame.iloc[1:, 1])  # 每张图片的文本标签
+            self.labels = sorted(list(set(text_labels)))  # 总共多少个类
+            text2num = {label: idx for idx, label in enumerate(self.labels)}  # 文本映射到数字
+            self.label_set = numpy.array([text2num[label] for label in text_labels])  # 每张图片的数字标签
+
+    def __len__(self):
+        return self.set_length
+
+    def get_labels(self):
+        return self.labels
+
+    def __getitem__(self, idx):
+        label = self.label_set[idx] if self.label_set is not None else 0
+        image = self.transform(PIL.Image.open(os.path.join(self.root_path, self.image_set[idx])))
+        return image, label
+
+
+# kaggle 树叶分类数据集: https://www.kaggle.com/competitions/classify-leaves/overview
+class Dataset_classify_leaves(object):
+    def __init__(self, batch_size, num_workers=4, train_augs=None, test_augs=None, save_path="./dataset"):
+        save_path = os.path.join(save_path, 'classify-leaves')
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.train = Custom_Image_Dataset(save_path, 'train.csv', train_augs)
+        self.test = Custom_Image_Dataset(save_path, 'train.csv', test_augs)
+        self.labels = self.train.get_labels()
+        print(f'\nNumber of categories -> {len(self.labels)}')
+        print(f'Original Shape -> {self.train[0][0].shape}, {self.train[0][1]}\n')
+        self.K_fold = -1
+        self.K_fold_indices = []
+
+    def get_k_fold_data_iter(self, K_fold, i, batch_size=0, num_workers=0):
+        batch_size = self.batch_size if batch_size <= 0 else batch_size
+        num_workers = self.num_workers if num_workers <= 0 else num_workers
+        if K_fold != self.K_fold:
+            self.K_fold = K_fold
+            k_fold = sklearn.model_selection.KFold(n_splits=self.K_fold, shuffle=True)
+            self.K_fold_indices = list(k_fold.split(self.train))
+        train_indices, test_indices = self.K_fold_indices[i]
+        train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
+        test_sampler = torch.utils.data.SubsetRandomSampler(test_indices)
+        train = torch.utils.data.DataLoader(self.train, batch_size, sampler=train_sampler, num_workers=num_workers)
+        test = torch.utils.data.DataLoader(self.test, batch_size, sampler=test_sampler, num_workers=num_workers)
+        return train, test
