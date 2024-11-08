@@ -23,26 +23,33 @@ from lx_module.ResNet import ResNet
 # - 训练多个模型，最后进行结果投票
 
 
+def set_parameter_requires_grad(model, feature_extracting):
+    if feature_extracting:
+        model = model
+        for param in model.parameters():
+            param.requires_grad = False
+
+
 def get_model(K_flod, flod):
     num_classes = 176
     if flod < K_flod:
-        net = ResNet(18, 3, num_classes)
-        logger = f'resnet18-fold-{flod}'
-        return net, 64, 1e-4, logger
-    elif flod < K_flod * 2:
         net = torchvision.models.resnext50_32x4d(pretrained=True)
         net.fc = torch.nn.Linear(net.fc.in_features, num_classes)
         torch.nn.init.xavier_uniform_(net.fc.weight)
         net = net.to(device=uitls.try_gpu())
         logger = f'resnext50_32x4d-fold-{flod}'
         return net, 64, 1e-4, logger
-    elif flod < K_flod * 3:
+    elif flod < K_flod * 2:
         net = torchvision.models.densenet121(pretrained=True)
         net.classifier = torch.nn.Linear(net.classifier.in_features, num_classes)
         torch.nn.init.xavier_uniform_(net.classifier.weight)
         net = net.to(device=uitls.try_gpu())
         logger = f'densenet121-fold-{flod}'
         return net, 32, 1e-4, logger
+    elif flod < K_flod * 3:
+        net = ResNet(50, 3, num_classes)
+        logger = f'resnet50-fold-{flod}'
+        return net, 64, 1e-4, logger
     else:
         raise 'no define'
 
@@ -77,9 +84,9 @@ def main():
     loss = torch.nn.CrossEntropyLoss()
     ### >>> 训练 <<< ########################################################################
     K_flod = 5  # K 折交叉验证
-    num_epochs = 30  # 轮数
-    total_test_acc = 0  # 计算K折平均精度
-    for flod in range(K_flod * 3):
+    num_epochs = 30  # 训练轮数
+    total_acc = 0  # 计算K折平均精度
+    for flod in range(K_flod * 2):
         # Get the model
         net, batch_size, learn_rate, logger = get_model(K_flod, flod)
         print(f'\n\nstart training {logger} with batch_size {batch_size}')
@@ -87,14 +94,11 @@ def main():
         train_iter, test_iter = data.get_k_fold_data_iter(K_flod, flod, batch_size)
         opt = torch.optim.Adam(net.parameters(), learn_rate, weight_decay=1e-3)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, 10)  # trick: 使用 Cosine 学习率策略
-        _, test_acc = uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, logger, scheduler)
-        # Saving the model
-        print(f'saving {logger} with accuracy {test_acc:.6f}\n\n')
-        torch.save(net.state_dict(), f'./{logger}_{test_acc}.pth')
-        total_test_acc += test_acc
+        total_acc += uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, logger, scheduler)
         if (flod + 1) % K_flod == 0:
-            print(f'{logger} Average test accuracy: {total_test_acc/K_flod:.6f}')
-            total_test_acc = 0
+            print(f'\n\n\n{logger} Average test accuracy: {total_acc / K_flod:.6f}\n\n\n')
+            total_acc = 0
+    # 继续提高精度方向：使用跨图片增强 Mixup CutMix，测试时使用 FiveCrop 投票，增大网络输入尺寸，增加更多模型
 
 
 if __name__ == "__main__":

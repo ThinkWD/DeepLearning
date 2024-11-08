@@ -81,7 +81,7 @@ def _make_layer(in_channels, out_channels, block, num_blocks, first_strides):
     return layers
 
 
-def ResNet(depth: int, in_channels: int, num_classes: int) -> torch.nn.Sequential:
+def ResNet(depth: int, in_channels: int, num_classes: int, show_summary: bool = False) -> torch.nn.Sequential:
     arch_settings = {
         18: (BasicBlock, (2, 2, 2, 2)),
         34: (BasicBlock, (3, 4, 6, 3)),
@@ -127,13 +127,14 @@ def ResNet(depth: int, in_channels: int, num_classes: int) -> torch.nn.Sequentia
 
     net.apply(init_weights)
     net = net.to(device=try_gpu())
-    # 打印网络结构, 每层的输出大小及参数量
-    torchsummary.summary(net, input_size=(in_channels, 224, 224))
-    # 简单四个模块的输出
-    X = torch.randn(1, in_channels, 224, 224, device=try_gpu())
-    print(f'Original input shape -> {X.shape}')
-    net.eval()
-    for layer in net:
-        X = layer(X)
-        print(f'{layer.__class__.__name__:>20} -> {X.shape}')
+    if show_summary:
+        # 打印网络结构, 每层的输出大小及参数量
+        torchsummary.summary(net, input_size=(in_channels, 224, 224))
+        # 简单四个模块的输出
+        X = torch.randn(1, in_channels, 224, 224, device=try_gpu())
+        print(f'Original input shape -> {X.shape}')
+        net.eval()
+        for layer in net:
+            X = layer(X)
+            print(f'{layer.__class__.__name__:>20} -> {X.shape}')
     return net

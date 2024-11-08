@@ -1,3 +1,4 @@
+import os
 import time
 import torch
 from matplotlib import pyplot as plt
@@ -115,15 +116,15 @@ def train_batch(net, opt, loss, X, y, device=try_gpu()):
     X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
     y = y.to(device)
     net.train()  # 将模型设置为训练模式: 更新参数, 应用丢弃法
-    y_hat = net(X)
-    l = loss(y_hat, y)  # 这个批次的损失
+    y_hat = net(X)  # 前向传播, 获取预测结果
+    l = loss(y_hat, y)  # 计算loss
     if isinstance(opt, torch.optim.Optimizer):  # 计算梯度
         opt.zero_grad()  # 清空上次的梯度
-        l.mean().backward()  # 根据损失函数计算梯度
+        l.mean().backward()  # 反向传播, 计算梯度
         opt.step()  # 根据梯度更新参数
         num_loss = float(l) * len(y)  # 更新总损失
     else:
-        l.sum().backward()  # 根据损失函数计算梯度
+        l.sum().backward()  # 反向传播, 计算梯度
         opt(X.shape[0])  # 根据梯度更新参数
         num_loss = float(l.sum())  # 更新总损失
     num_accuracy = accuracy(y_hat, y)  # 这个批次预测正确的数量
@@ -140,6 +141,7 @@ def train_batch(net, opt, loss, X, y, device=try_gpu()):
 def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log="log", lr_scheduler=None):
     device = try_gpu()
     num_batches = len(train_iter)
+    best_checkpoint, last_checkpoint = 0.5, None
     animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test acc'])
     for ep in range(1, num_epochs + 1):
         sum_loss = 0
@@ -173,9 +175,17 @@ def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log=
         timer.stop()
         animator.add(ep, (None, None, test_acc))
         print(f"[{log}] test accuracy: {test_acc:.6f}, {sum_examples / timer.sum():.1f} examples/sec")
-    print(f"[{log}] Completed, loss: {train_loss:.6f}, train accuracy: {train_acc:.6f}, test accuracy: {test_acc:.6f}")
-    animator.save(f"./animator_{log}.jpg")
-    return train_acc, test_acc
+        # 保存最佳精度模型
+        if test_acc > best_checkpoint:
+            best_checkpoint = test_acc
+            print(f'\n[{log}] Saving checkpoint in epoch {ep} with accuracy {test_acc:.6f}\n')
+            if last_checkpoint is not None:
+                os.remove(last_checkpoint)
+            last_checkpoint = f'./{log}_{ep}_{test_acc:.3f}.pth'
+            torch.save(net.state_dict(), last_checkpoint)
+    print(f"[{log}] Completed, best test accuracy: {best_checkpoint}")
+    animator.save(f"./animator_{log}_{best_checkpoint}.jpg")
+    return best_checkpoint
 
 
 ###########################################################################
@@ -210,6 +220,7 @@ def train_regression(
 ):
     device = try_gpu()
     num_batches = len(train_iter)
+    best_checkpoint, last_checkpoint = 0.5, None
     animator = Animator(ylim=[0, 1], legend=['train loss', 'test loss'])
     for ep in range(1, num_epochs + 1):
         sum_train_loss = 0
@@ -238,6 +249,14 @@ def train_regression(
         # 更新学习率
         if lr_scheduler is not None:
             lr_scheduler.step()
-    print(f"[{log}] Completed, train loss: {train_loss:.6f}, test loss: {test_loss:.6f}\n")
+        # 保存最佳精度模型
+        if test_loss > best_checkpoint:
+            best_checkpoint = test_loss
+            print(f'\n[{log}] Saving checkpoint in epoch {ep} with loss {test_loss:.6f}\n')
+            if last_checkpoint is not None:
+                os.remove(last_checkpoint)
+            last_checkpoint = f'./{log}_{ep}_{test_loss:.3f}.pth'
+            torch.save(net.state_dict(), last_checkpoint)
+    print(f"[{log}] Completed, best test loss: {test_loss:.6f}\n")
     animator.save(f"./animator_{log}.jpg")
     return train_loss, test_loss
