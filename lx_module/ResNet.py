@@ -6,20 +6,22 @@ from .uitls import try_gpu
 class BasicBlock(torch.nn.Module):
     '''BasicBlock block for ResNet.'''
 
+    expansion: int = 1
+
     def __init__(self, in_channels: int, out_channels: int, strides: int = 1) -> None:
         super().__init__()
         self.relu = torch.nn.ReLU(inplace=True)
         # 附加层1
-        self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=strides)
+        self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=strides, bias=False)
         self.bn1 = torch.nn.BatchNorm2d(out_channels)
         # 附加层2
-        self.conv2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.conv2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
         self.bn2 = torch.nn.BatchNorm2d(out_channels)
         # 降采样：是否使用 1*1 卷积层来同步输出的形状。如果附加层改变了图像尺寸或通道数，就需要同步。
         self.downsample = None
         if strides != 1 or in_channels != out_channels:
             self.downsample = torch.nn.Sequential(
-                torch.nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=strides),
+                torch.nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=strides, bias=False),
                 torch.nn.BatchNorm2d(out_channels),
             )
 
@@ -38,24 +40,26 @@ class BasicBlock(torch.nn.Module):
 class Bottleneck(torch.nn.Module):
     '''Bottleneck block for ResNet.'''
 
-    def __init__(self, in_channels: int, out_channels: int, strides: int = 1, expansion: int = 4) -> None:
+    expansion: int = 4
+
+    def __init__(self, in_channels: int, out_channels: int, strides: int = 1) -> None:
         super().__init__()
-        mid_channels = out_channels // expansion
+        mid_channels = out_channels // self.expansion
         self.relu = torch.nn.ReLU(inplace=True)
         # 附加层1
-        self.conv1 = torch.nn.Conv2d(in_channels, mid_channels, kernel_size=1)
+        self.conv1 = torch.nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False)
         self.bn1 = torch.nn.BatchNorm2d(mid_channels)
         # 附加层2
-        self.conv2 = torch.nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1, stride=strides)
+        self.conv2 = torch.nn.Conv2d(mid_channels, mid_channels, kernel_size=3, padding=1, stride=strides, bias=False)
         self.bn2 = torch.nn.BatchNorm2d(mid_channels)
         # 附加层3
-        self.conv3 = torch.nn.Conv2d(mid_channels, out_channels, kernel_size=1)
+        self.conv3 = torch.nn.Conv2d(mid_channels, out_channels, kernel_size=1, bias=False)
         self.bn3 = torch.nn.BatchNorm2d(out_channels)
         # 降采样：是否使用 1*1 卷积层来同步输出的形状。如果附加层改变了图像尺寸或通道数，就需要同步。
         self.downsample = None
         if strides != 1 or in_channels != out_channels:
             self.downsample = torch.nn.Sequential(
-                torch.nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=strides),
+                torch.nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=strides, bias=False),
                 torch.nn.BatchNorm2d(out_channels),
             )
 
@@ -93,7 +97,7 @@ def ResNet(depth: int, in_channels: int, num_classes: int, show_summary: bool = 
     assert depth in arch_settings, f'invalid depth {depth} for resnet'
     # 通用起始阶段，快速降低尺寸。宽高减半两次，通道 in_channels -> 64
     initiate = torch.nn.Sequential(
-        torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),  # 宽高减半
+        torch.nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False),  # 宽高减半
         torch.nn.BatchNorm2d(64),
         torch.nn.ReLU(inplace=True),
         torch.nn.MaxPool2d(kernel_size=3, stride=2, padding=1),  # 宽高减半
@@ -101,10 +105,10 @@ def ResNet(depth: int, in_channels: int, num_classes: int, show_summary: bool = 
     # 骨干网络
     block, stage_blocks = arch_settings[depth]
     backbone = torch.nn.Sequential(
-        *_make_layer(64, 64, block, stage_blocks[0], 1),  # 除了第一个以外，宽高减半，通道加倍
-        *_make_layer(64, 128, block, stage_blocks[1], 2),
-        *_make_layer(128, 256, block, stage_blocks[2], 2),
-        *_make_layer(256, 512, block, stage_blocks[3], 2),
+        *_make_layer(64, 64 * block.expansion, block, stage_blocks[0], 1),  # 除了第一个以外，宽高减半，通道加倍
+        *_make_layer(64 * block.expansion, 128 * block.expansion, block, stage_blocks[1], 2),
+        *_make_layer(128 * block.expansion, 256 * block.expansion, block, stage_blocks[2], 2),
+        *_make_layer(256 * block.expansion, 512 * block.expansion, block, stage_blocks[3], 2),
     )
     # 脖子
     neck = torch.nn.Sequential(
@@ -113,7 +117,7 @@ def ResNet(depth: int, in_channels: int, num_classes: int, show_summary: bool = 
     # 分类头, 加一个全连接层避免卷积层需要直接输出类别数的通道。
     head = torch.nn.Sequential(
         torch.nn.Flatten(),
-        torch.nn.Linear(512, num_classes),  # 1 * 1 * 512
+        torch.nn.Linear(512 * block.expansion, num_classes),  # 1 * 1 * 512
     )
     net = torch.nn.Sequential(initiate, backbone, neck, head)
 

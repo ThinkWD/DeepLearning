@@ -37,19 +37,23 @@ def get_model(K_flod, flod):
         net.fc = torch.nn.Linear(net.fc.in_features, num_classes)
         torch.nn.init.xavier_uniform_(net.fc.weight)
         net = net.to(device=uitls.try_gpu())
-        logger = f'resnext50_32x4d-fold-{flod}'
+        logger = f'resnext50_32x4d-fold-{flod % K_flod}'
         return net, 64, 1e-4, logger
     elif flod < K_flod * 2:
         net = torchvision.models.densenet121(pretrained=True)
         net.classifier = torch.nn.Linear(net.classifier.in_features, num_classes)
         torch.nn.init.xavier_uniform_(net.classifier.weight)
         net = net.to(device=uitls.try_gpu())
-        logger = f'densenet121-fold-{flod}'
+        logger = f'densenet121-fold-{flod % K_flod}'
         return net, 32, 1e-4, logger
     elif flod < K_flod * 3:
         net = ResNet(50, 3, num_classes)
-        logger = f'resnet50-fold-{flod}'
+        logger = f'resnet50-fold-{flod % K_flod}'
         return net, 64, 1e-4, logger
+    elif flod < K_flod * 4:
+        net = ResNet(101, 3, num_classes)
+        logger = f'resnet101-fold-{flod % K_flod}'
+        return net, 32, 1e-4, logger
     else:
         raise 'no define'
 
@@ -91,7 +95,7 @@ def main():
         net, batch_size, learn_rate, logger = get_model(K_flod, flod)
         print(f'\n\nstart training {logger} with batch_size {batch_size}')
         # Train the model
-        train_iter, test_iter = data.get_k_fold_data_iter(K_flod, flod, batch_size)
+        train_iter, test_iter = data.get_k_fold_data_iter(K_flod, flod % K_flod, batch_size)
         opt = torch.optim.Adam(net.parameters(), learn_rate, weight_decay=1e-3)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, 10)  # trick: 使用 Cosine 学习率策略
         total_acc += uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, logger, scheduler)

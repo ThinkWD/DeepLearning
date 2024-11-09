@@ -184,7 +184,7 @@ def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log=
             last_checkpoint = f'./{log}_{ep}_{test_acc:.3f}.pth'
             torch.save(net.state_dict(), last_checkpoint)
     print(f"[{log}] Completed, best test accuracy: {best_checkpoint}")
-    animator.save(f"./animator_{log}_{best_checkpoint}.jpg")
+    animator.save(f"./animator_{log}_{best_checkpoint:.3f}.jpg")
     return best_checkpoint
 
 
