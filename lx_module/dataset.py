@@ -239,12 +239,12 @@ class Custom_Image_Dataset(torch.utils.data.Dataset):
         self.transform = transform if transform else torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
         # 图片
         data_frame = pandas.read_csv(os.path.join(self.root_path, csv_file))
-        self.image_set = numpy.asarray(data_frame.iloc[1:, 0])
+        self.image_set = numpy.asarray(data_frame.iloc[:, 0])
         self.set_length = len(self.image_set)
         # 标签
         self.labels, self.label_set = None, None
         if 'label' in data_frame.columns:
-            text_labels = numpy.asarray(data_frame.iloc[1:, 1])  # 每张图片的文本标签
+            text_labels = numpy.asarray(data_frame.iloc[:, 1])  # 每张图片的文本标签
             self.labels = sorted(list(set(text_labels)))  # 总共多少个类
             text2num = {label: idx for idx, label in enumerate(self.labels)}  # 文本映射到数字
             self.label_set = numpy.array([text2num[label] for label in text_labels])  # 每张图片的数字标签

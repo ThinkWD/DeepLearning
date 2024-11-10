@@ -200,17 +200,18 @@ def evaluate_loss(net, loss, data_iter, using_log_loss=False, device=try_gpu()):
     net.eval()  # 将模型设置为评估模式: 不计算梯度, 跳过丢弃法, 性能更好
     num_loss = 0  # 训练损失
     num_samples = 0  # 样本总数
-    for X, y in data_iter:
-        X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
-        y = y.to(device)
-        y_hat = torch.clamp(net(X), 1, float('inf')) if using_log_loss else net(X)
-        l = loss(torch.log(y_hat), torch.log(y)) if using_log_loss else loss(y_hat, y)
-        if isinstance(loss, torch.nn.Module):
-            num_loss += l * len(y)
-            num_samples += y.size().numel()
-        else:
-            num_loss += l.sum()
-            num_samples += y.numel()
+    with torch.no_grad():
+        for X, y in data_iter:
+            X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
+            y = y.to(device)
+            y_hat = torch.clamp(net(X), 1, float('inf')) if using_log_loss else net(X)
+            l = loss(torch.log(y_hat), torch.log(y)) if using_log_loss else loss(y_hat, y)
+            if isinstance(loss, torch.nn.Module):
+                num_loss += l * len(y)
+                num_samples += y.size().numel()
+            else:
+                num_loss += l.sum()
+                num_samples += y.numel()
     res_loss = num_loss / num_samples
     return float(torch.sqrt(res_loss)) if using_log_loss else float(res_loss)
 
