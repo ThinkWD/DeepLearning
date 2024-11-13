@@ -1,9 +1,10 @@
 import os
 import PIL
-import numpy
+import numpy as np
 import torch
 import pandas
 import sklearn
+import hashlib
 import sklearn.model_selection
 import torchvision  # 对于计算机视觉实现的一个库
 import matplotlib.pyplot as plt
@@ -23,7 +24,7 @@ def show_images(imgs, num_rows, num_cols, titles=None, scale=1, save_path=None):
         try:
             img = img.detach().cpu().numpy()
             if img.ndim == 3 and img.shape[0] in [1, 3, 4]:
-                img = numpy.transpose(img, (1, 2, 0))
+                img = np.transpose(img, (1, 2, 0))
         except:
             pass
         ax.imshow(img)
@@ -239,15 +240,15 @@ class Custom_Image_Dataset(torch.utils.data.Dataset):
         self.transform = transform if transform else torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
         # 图片
         data_frame = pandas.read_csv(os.path.join(self.root_path, csv_file))
-        self.image_set = numpy.asarray(data_frame.iloc[:, 0])
+        self.image_set = np.asarray(data_frame.iloc[:, 0])
         self.set_length = len(self.image_set)
         # 标签
         self.labels, self.label_set = None, None
         if 'label' in data_frame.columns:
-            text_labels = numpy.asarray(data_frame.iloc[:, 1])  # 每张图片的文本标签
+            text_labels = np.asarray(data_frame.iloc[:, 1])  # 每张图片的文本标签
             self.labels = sorted(list(set(text_labels)))  # 总共多少个类
             text2num = {label: idx for idx, label in enumerate(self.labels)}  # 文本映射到数字
-            self.label_set = numpy.array([text2num[label] for label in text_labels])  # 每张图片的数字标签
+            self.label_set = np.array([text2num[label] for label in text_labels])  # 每张图片的数字标签
 
     def __len__(self):
         return self.set_length
