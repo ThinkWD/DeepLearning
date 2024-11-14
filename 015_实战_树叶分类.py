@@ -1,35 +1,13 @@
 import os
+import timm
 import torch
 import scipy
 import pandas
 import torchvision
-import numpy as np
 from tqdm import tqdm
 from lx_module import uitls
 from lx_module import dataset
-
-
-# 数据方面：
-# - 手动去除重复图片
-# - 图片上背景较多，且树叶没有方向性，可以做更多增强
-# 	- 随机旋转，更大的裁剪
-# - 跨图片增强：
-# 	- Mixup：随机叠加两张图片
-# 	- CutMix：随机组合来自不同图片的块
-# - 测试时使用稍弱的增强，然后多个结果投票
-#
-# 模型方面：
-# - 模型多为 ResNet 的变种
-# 	- DenseNet, ResNeXt, ResNeSt, ...
-# 	- EfficientNet
-# - 优化算法多为 Adam 或其变种
-# - 学习率一般是 Cosine 或者训练不动时往下调
-# - 训练多个模型，最后进行结果投票
-
-# 通常我们可以选择使用torchvision.models来选择主流的模型.
-# 这里推荐使用timm库, 相比pytorch的官方库, 模型选择更多,也更新，可以查看很多模型参数细节.
-# 具体可以参考下面的链接. 可以通过torchinfo，辅助了解选择的模型.
-# https://paperswithcode.com/lib/timm
+from timm.loss import SoftTargetCrossEntropy
 
 
 def set_parameter_requires_grad(model, feature_extracting):
@@ -46,36 +24,40 @@ def find_saved_model(root_path, name):
     raise Exception('The model file does not exist')
 
 
-def get_model(K_flod, flod, is_train):
-    # trick: 使用多个模型分别训练, 最后使用所有模型投票
+def get_model(K_flod: int, flod: int, is_train: bool):
+    # [trick] 模型选择: 使用多个表现较好的模型分别训练, 最后使用所有模型投票
+    # [trick] batch_size 最好在 32 ~ 512 之间. 显存不足时, 用梯度累积技术模拟大 batch_size
     num_classes = 176
     if flod < K_flod:
-        weights = torchvision.models.ResNeXt50_32X4D_Weights.DEFAULT if is_train else None
-        net = torchvision.models.resnext50_32x4d(weights=weights)
-        net.fc = torch.nn.Linear(net.fc.in_features, num_classes)
-        torch.nn.init.xavier_uniform_(net.fc.weight)
-        net = net.to(device=uitls.try_gpu())
-        logger = f'resnext50_32x4d-fold-{flod % K_flod}'
-        return net, 32, 1e-4, logger
-    elif flod < K_flod * 2:
-        weights = torchvision.models.DenseNet161_Weights.DEFAULT if is_train else None
-        net = torchvision.models.densenet161(weights=weights)
-        net.classifier = torch.nn.Linear(net.classifier.in_features, num_classes)
-        torch.nn.init.xavier_uniform_(net.classifier.weight)
-        net = net.to(device=uitls.try_gpu())
-        logger = f'densenet161-fold-{flod % K_flod}'
-        return net, 8, 1e-4, logger
-    elif flod < K_flod * 3:
-        weights = torchvision.models.EfficientNet_V2_M_Weights.DEFAULT if is_train else None
-        net = torchvision.models.efficientnet_v2_m(weights=weights)
-        net.classifier = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.4, inplace=True),
-            torch.nn.Linear(net.classifier[1].in_features, num_classes),
+        net = timm.create_model(  # 关掉 pretrained 并使用 print(net.default_cfg) 查看预训练模型下载链接
+            'resnet50d',
+            num_classes=num_classes,
+            pretrained=is_train,
+            pretrained_cfg_overlay=dict(file='./dataset/resnet50d_ra2-464e36ba.pth'),
         )
-        torch.nn.init.xavier_uniform_(net.classifier[1].weight)
         net = net.to(device=uitls.try_gpu())
-        logger = f'efficientnet_v2_m-fold-{flod % K_flod}'
-        return net, 8, 1e-4, logger
+        logger = f'resnet50d-fold-{flod % K_flod}'
+        return net, 64, 1e-4, logger
+    elif flod < K_flod * 2:
+        net = timm.create_model(  # 关掉 pretrained 并使用 print(net.default_cfg) 查看预训练模型下载链接
+            'efficientnet_b3',
+            num_classes=num_classes,
+            pretrained=is_train,
+            pretrained_cfg_overlay=dict(file='./dataset/efficientnet_b3_ra2-cf984f9c.pth'),
+        )
+        net = net.to(device=uitls.try_gpu())
+        logger = f'efficientnet_b3-fold-{flod % K_flod}'
+        return net, 32, 1e-4, logger
+    elif flod < K_flod * 3:
+        net = timm.create_model(  # 关掉 pretrained 并使用 print(net.default_cfg) 查看预训练模型下载链接
+            'legacy_seresnext50_32x4d',
+            num_classes=num_classes,
+            pretrained=False,
+            pretrained_cfg_overlay=dict(file='./dataset/legacy_se_resnext50_32x4d-f3651bad.pth'),
+        )
+        net = net.to(device=uitls.try_gpu())
+        logger = f'seresnext50d_32x4d-fold-{flod % K_flod}'
+        return net, 32, 1e-4, logger
     else:
         raise Exception('no defined')
 
@@ -110,7 +92,7 @@ def eval_asst(net, data_path, csv_file, transforms, save_path, delay_vote=True):
 def eval(K_flod, target_size, checkpoints_path, save_path):
     data_path = './dataset/classify-leaves'
     os.makedirs(save_path, exist_ok=True)
-    # trick: 测试时使用稍弱的增强，然后多个结果投票
+    # [trick] 测试时数据增强: FiveCrop 或 TenCrop, 然后多个结果投票
     transforms = torchvision.transforms.Compose(
         [
             torchvision.transforms.Resize(round(target_size / 7 * 8)),  # 先缩放到一个较大的尺寸
@@ -147,8 +129,7 @@ def eval(K_flod, target_size, checkpoints_path, save_path):
 
 
 def train(K_flod, target_size):
-    # trick: 图片上背景较多，且树叶没有方向性，可以做更多增强.
-    # [未应用] trick: 跨图片增强 Mixup CutMix
+    # [trick] 训练时数据增强: 图片上背景较多, 且树叶没有方向性, 可以做更多增强
     train_augs = torchvision.transforms.Compose(
         [
             torchvision.transforms.Resize(target_size),
@@ -172,34 +153,58 @@ def train(K_flod, target_size):
         ]
     )
     ### >>> 数据集 <<< ######################################################################
+    # [trick] 数据集预处理: 去除重复图片, 杜绝图片相同标签不同的情况
     data = dataset.Dataset_classify_leaves(32, 8, train_augs, test_augs)
-    loss = torch.nn.CrossEntropyLoss()
+    # [trick] 训练时数据'跨图片'增强: Mixup (随机叠加两张图片) + CutMix (随机组合来自不同图片的块)
+    mixup_fn = timm.data.Mixup(mixup_alpha=0.2, cutmix_alpha=0.2, num_classes=176)
+    loss = SoftTargetCrossEntropy()  # torch.nn.CrossEntropyLoss()
     ### >>> 训练 <<< ########################################################################
+    grad_accum_steps = 4
     total_acc = 0  # 计算K折平均精度
     for flod in range(K_flod * 3):
         # model, dataloader
         net, batch_size, learn_rate, logger = get_model(K_flod, flod, True)
-        print(f'\n\nstart training {logger} with batch_size {batch_size}')
+        print(f'\n\nstart training {logger} with batch_size {batch_size * grad_accum_steps}')
         train_iter, test_iter = data.get_k_fold_data_iter(K_flod, flod % K_flod, batch_size)
-        # trick: 使用 Warmup + Cosine 学习率策略
+        # [trick] 优化算法: 使用 Adam 或其变种 (避免调参)
+        opt = torch.optim.AdamW(net.parameters(), learn_rate, weight_decay=1e-3)
+        # [trick] 学习率策略: Warmup + Cosine
         num_epochs = 50  # 训练轮数
         warmup_epochs = 5  # 1000 iter 或 5 epoch
-        opt = torch.optim.AdamW(net.parameters(), learn_rate, weight_decay=1e-3)
         warmup = torch.optim.lr_scheduler.LinearLR(opt, start_factor=1e-2, total_iters=warmup_epochs)
         cosine = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=num_epochs - warmup_epochs)
         scheduler = torch.optim.lr_scheduler.SequentialLR(opt, schedulers=[warmup, cosine], milestones=[warmup_epochs])
-        # train
-        total_acc += uitls.train_classification(net, opt, loss, train_iter, test_iter, num_epochs, logger, scheduler)
+        # [trick] 使用自动混合半精度加速训练过程
+        total_acc += uitls.train_classification(
+            net, opt, loss, train_iter, test_iter, num_epochs, logger, scheduler, grad_accum_steps, mixup_fn, True
+        )
         if (flod + 1) % K_flod == 0:
             print(f'\n\n\n{logger} Average test accuracy: {total_acc / K_flod:.6f}\n\n\n')
             total_acc = 0
 
 
+# 数据方面：
+# - [trick] 数据集预处理: 去除重复图片, 杜绝图片相同标签不同的情况
+# - [trick] 训练时数据增强: 图片上背景较多, 且树叶没有方向性, 可以做更多增强
+# - [trick] 测试时数据增强: FiveCrop 或 TenCrop, 然后多个结果投票
+# - [trick] 训练时数据'跨图片'增强: Mixup (随机叠加两张图片), CutMix (随机组合来自不同图片的块)
+#
+# 模型方面：
+# - [trick] 模型选择: 使用多个表现较好的模型分别训练, 最后使用所有模型投票
+# - [trick] 优化算法: 使用 Adam 或其变种 (避免调参)
+# - [trick] 学习率策略: Warmup + Cosine 或 ReduceLROnPlateau 训练不动时向下调
+#
+# 训练方面：
+# - [trick] K 折交叉验证
+# - [trick] 更大的网络输入尺寸
+# - [trick] batch_size 最好在 32 ~ 512 之间. 显存不足时, 用梯度累积技术模拟大 batch_size
+# - [trick] 使用自动混合半精度加速训练过程
+
 # Best Public Score: 0.97886
 # Best Private Score: 0.97840
 # Kaggle: https://www.kaggle.com/competitions/classify-leaves
 if __name__ == "__main__":
-    K_flod = 5  # K 折交叉验证
-    target_size = 320  # trick: 增大网络输入尺寸
+    K_flod = 5  # [trick] K 折交叉验证
+    target_size = 320  # [trick] 更大的网络输入尺寸
     train(K_flod, target_size)
     eval(K_flod, target_size, os.getcwd(), './submission')

@@ -2,6 +2,7 @@ import os
 import time
 import torch
 from matplotlib import pyplot as plt
+from torch.cuda.amp import autocast, GradScaler
 
 
 def try_gpu(i=0):
@@ -98,6 +99,8 @@ def accuracy(y_hat, y):
     """准确率, 计算预测正确的数量"""
     if len(y_hat.shape) > 1 and y_hat.shape[1] > 1:
         y_hat = y_hat.argmax(axis=1)  # 沿列方向找出每一行中最大概率对应的下标
+    if len(y.shape) > 1:  # 检查是否启用了 mixup 或 cutmix
+        y = y.argmax(axis=1)  # 对混合标签取最大值的下标
     cmp = y_hat.type(y.dtype) == y  # 与真实值比较
     return float(cmp.type(y.dtype).sum())  # 返回预测正确的数量
 
@@ -116,20 +119,32 @@ def evaluate(net, data_iter, device=try_gpu()):
     return num_accuracy / num_samples
 
 
-def train_batch(net, opt, loss, X, y, device=try_gpu()):
+def train_batch(net, opt, loss, X, y, device=try_gpu(), idx=0, grad_accum_steps=1, mixup_fn=None, scaler=None):
+    if mixup_fn is not None:
+        X, y = mixup_fn(X, y)
     X = [x.to(device) for x in X] if isinstance(X, list) else X.to(device)
     y = y.to(device)
     net.train()  # 将模型设置为训练模式: 更新参数, 应用丢弃法
-    y_hat = net(X)  # 前向传播, 获取预测结果
-    l = loss(y_hat, y)  # 计算loss
+    # 使用 autocast 上下文和 AMP 半精度训练支持
+    use_amp = scaler is not None
+    with autocast(enabled=use_amp):
+        y_hat = net(X)  # 前向传播, 获取预测结果
+        l = loss(y_hat, y) / grad_accum_steps  # 计算小批次的平均损失
+    # 使用 GradScaler 进行反向传播和优化
     if isinstance(opt, torch.optim.Optimizer):  # 计算梯度
-        opt.zero_grad()  # 清空上次的梯度
-        l.mean().backward()  # 反向传播, 计算梯度
-        opt.step()  # 根据梯度更新参数
+        scaler.scale(l.mean()).backward() if use_amp else l.mean().backward()  # 反向传播, 计算梯度
+        if (idx + 1) % grad_accum_steps == 0:
+            if use_amp:
+                scaler.step(opt)  # 使用 AMP 时更新缩放后的参数
+                scaler.update()  # 更新缩放比例
+            else:
+                opt.step()  # 常规模式下直接根据梯度更新参数
+            opt.zero_grad()  # 清空上次的梯度
         num_loss = float(l) * len(y)  # 更新总损失
     else:
         l.sum().backward()  # 反向传播, 计算梯度
-        opt(X.shape[0])  # 根据梯度更新参数
+        if (idx + 1) % grad_accum_steps == 0:
+            opt(X.shape[0])  # 根据梯度更新参数
         num_loss = float(l.sum())  # 更新总损失
     num_accuracy = accuracy(y_hat, y)  # 这个批次预测正确的数量
     return num_loss, num_accuracy
@@ -142,10 +157,23 @@ def train_batch(net, opt, loss, X, y, device=try_gpu()):
 #
 #
 ###########################################################################
-def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log="log", lr_scheduler=None):
+def train_classification(
+    net,
+    opt,
+    loss,
+    train_iter,
+    test_iter,
+    num_epochs,
+    log="log",
+    lr_scheduler=None,
+    grad_accum_steps=1,
+    mixup_fn=None,
+    use_amp=False,
+):
     device = try_gpu()
     num_batches = len(train_iter)
     best_checkpoint, last_checkpoint = 0.5, None
+    scaler = GradScaler() if use_amp else None  # 初始化 GradScaler，仅在启用 AMP 时使用
     animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test acc'])
     for ep in range(1, num_epochs + 1):
         sum_loss = 0
@@ -153,9 +181,10 @@ def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log=
         sum_examples = 0
         sum_predictions = 0
         timer = Timer()
+        # 训练集
         for i, (X, y) in enumerate(train_iter):
             timer.start()
-            l, acc = train_batch(net, opt, loss, X, y, device)
+            l, acc = train_batch(net, opt, loss, X, y, device, i, grad_accum_steps, mixup_fn, scaler)
             sum_loss += l
             sum_train_acc += acc
             sum_examples += y.shape[0]
@@ -165,7 +194,7 @@ def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log=
                 train_loss = sum_loss / sum_examples
                 train_acc = sum_train_acc / sum_predictions
                 animator.add((ep - 1) + (i + 1) / num_batches, (train_loss, train_acc, None))
-                cur_lr = opt.param_groups[0]['lr']
+                cur_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
                 print(
                     f"{_time_()} - [{log}] epoch {ep:>3}, iter {i + 1:>4}, lr: {cur_lr:.2e}, loss: {train_loss:.6f}, "
                     f"train accuracy: {train_acc:.6f}, {sum_examples / timer.sum():.1f} examples/sec"
@@ -173,7 +202,7 @@ def train_classification(net, opt, loss, train_iter, test_iter, num_epochs, log=
         # 更新学习率
         if lr_scheduler is not None:
             lr_scheduler.step()
-        # 计时
+        # 测试集
         timer = Timer()
         test_acc = evaluate(net, test_iter, device)
         timer.stop()
@@ -239,7 +268,7 @@ def train_regression(
             if (i + 1) % (num_batches // 5 + 1) == 0 or i == num_batches - 1:
                 train_loss = sum_train_loss / sum_examples
                 animator.add((ep - 1) + (i + 1) / num_batches, (train_loss, None))
-                cur_lr = opt.param_groups[0]['lr']
+                cur_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
                 print(
                     f"{_time_()} - [{log}] epoch {ep:>3}, iter {i + 1:>4}, lr: {cur_lr:.2e}, train loss: {train_loss:.6f}"
                 )
@@ -247,7 +276,7 @@ def train_regression(
             train_loss = evaluate_loss(net, loss, train_iter, using_log_loss, device)
             test_loss = evaluate_loss(net, loss, test_iter, using_log_loss, device) if test_iter else -1
             animator.add(ep, (train_loss, test_loss))
-            cur_lr = opt.param_groups[0]['lr']
+            cur_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
             print(
                 f"{_time_()} - [{log}] epoch {ep:>3}, lr: {cur_lr:.2e}, train loss: {train_loss:.6f}, test loss: {test_loss:.6f}"
             )

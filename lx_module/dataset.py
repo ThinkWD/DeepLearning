@@ -1,5 +1,6 @@
 import os
 import PIL
+from tqdm import tqdm
 import numpy as np
 import torch
 import pandas
@@ -50,6 +51,33 @@ def generate_dataset_preview(dataset, num2label, save_path=None, num_rows=5, num
         tittles.append(title)
     imgs = [dataset[idx][0] for idx in indices]
     show_images(imgs, num_rows, num_cols, tittles, scale, save_path)
+
+
+def check_dataset(root_path, csv_file):
+    data_frame = pandas.read_csv(os.path.join(root_path, csv_file))
+    image_set = np.asarray(data_frame.iloc[:, 0])
+    label_set = np.asarray(data_frame.iloc[:, 1])
+    hash_dict = {}
+    duplicates = {}
+    for idx, image_path in enumerate(tqdm(image_set, leave=True, ncols=100, colour="CYAN")):
+        img = PIL.Image.open(os.path.join(root_path, image_path))
+        img_hash = hashlib.md5(img.tobytes()).hexdigest()
+        if img_hash in hash_dict:
+            duplicates.setdefault(hash_dict[img_hash], []).append(idx)
+        else:
+            hash_dict[img_hash] = idx
+    to_remove = set()
+    for key, indices in duplicates.items():
+        labels = [label_set[key]]
+        labels.extend([label_set[idx] for idx in indices])
+        if len(set(labels)) == 1:
+            to_remove.update(indices[1:])  # 保留第一个，删除其余的
+        else:
+            to_remove.update(indices)  # 标签不同，删除所有
+    data_frame = data_frame.drop(list(to_remove))
+    updated_csv_file = os.path.join(root_path, f'updated_{csv_file}')
+    data_frame.to_csv(updated_csv_file, index=False)
+    print(f"Updated CSV file saved as {updated_csv_file}, Removed {len(to_remove)} data.")
 
 
 ###########################################################
@@ -268,8 +296,9 @@ class Dataset_classify_leaves(object):
         save_path = os.path.join(save_path, 'classify-leaves')
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.train = Custom_Image_Dataset(save_path, 'train.csv', train_augs)
-        self.test = Custom_Image_Dataset(save_path, 'train.csv', test_augs)
+        # check_dataset(save_path, 'train.csv')
+        self.train = Custom_Image_Dataset(save_path, 'updated_train.csv', train_augs)
+        self.test = Custom_Image_Dataset(save_path, 'updated_train.csv', test_augs)
         self.labels = self.train.get_labels()
         print(f'\nNumber of categories -> {len(self.labels)}')
         print(f'Original Shape -> {self.train[0][0].shape}, {self.train[0][1]}\n')
