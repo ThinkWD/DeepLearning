@@ -315,6 +315,10 @@ class Dataset_classify_leaves(object):
         train_indices, test_indices = self.K_fold_indices[i]
         train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
         test_sampler = torch.utils.data.SubsetRandomSampler(test_indices)
-        train = torch.utils.data.DataLoader(self.train, batch_size, sampler=train_sampler, num_workers=num_workers)
-        test = torch.utils.data.DataLoader(self.test, batch_size, sampler=test_sampler, num_workers=num_workers)
+        train = torch.utils.data.DataLoader(
+            self.train, batch_size, sampler=train_sampler, num_workers=num_workers, drop_last=True, pin_memory=True
+        )
+        test = torch.utils.data.DataLoader(
+            self.test, batch_size, sampler=test_sampler, num_workers=num_workers, pin_memory=True
+        )
         return train, test

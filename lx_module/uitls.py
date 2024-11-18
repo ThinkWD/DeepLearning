@@ -15,6 +15,32 @@ def _time_():
     return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
 
 
+class Timer:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):  # 复位
+        self.total_time = 0.0
+        self.tik = time.time()
+
+    def flag(self):  # 获取当次计时时间
+        new_tik = time.time()
+        elapsed = new_tik - self.tik
+        self.total_time += elapsed
+        self.tik = new_tik
+        return elapsed
+
+    def sum(self):  # 获取计时以来的总时间
+        self.flag()
+        return self.total_time
+
+
+def seconds_to_hms(seconds):
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    return f"{int(h):02d}:{int(m):02d}:{int(s):02d}"
+
+
 def set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend):
     axes.set_xlabel(xlabel)
     axes.set_ylabel(ylabel)
@@ -25,25 +51,6 @@ def set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend):
     if legend:
         axes.legend(legend)
     axes.grid()
-
-
-class Timer:
-    def __init__(self):
-        self.times = []
-        self.start()
-
-    def start(self):
-        self.tik = time.time()
-
-    def stop(self):
-        self.times.append(time.time() - self.tik)
-        return self.times[-1]
-
-    def avg(self):
-        return sum(self.times) / len(self.times)
-
-    def sum(self):
-        return sum(self.times)
 
 
 class Animator:
@@ -160,7 +167,7 @@ def train_batch(net, opt, loss, X, y, device=try_gpu(), idx=0, grad_accum_steps=
 def train_classification(
     net,
     opt,
-    loss,
+    loss_fn,
     train_iter,
     test_iter,
     num_epochs,
@@ -174,40 +181,41 @@ def train_classification(
     num_batches = len(train_iter)
     best_checkpoint, last_checkpoint = 0.5, None
     scaler = GradScaler() if use_amp else None  # 初始化 GradScaler，仅在启用 AMP 时使用
-    animator = Animator(ylim=[0, 1], legend=['train loss', 'train acc', 'test acc'])
+    animator = Animator(ylim=[0, 1], legend=['train acc', 'test acc', 'train loss'])
+    animator_lr = Animator(legend=['lr'])
+    # 添加初始学习率数值
+    if lr_scheduler is not None:
+        animator_lr.add(0, opt.param_groups[0]['lr'])  # lr_scheduler.get_last_lr()[0])
+    timer = Timer()
     for ep in range(1, num_epochs + 1):
-        sum_loss = 0
-        sum_train_acc = 0
-        sum_examples = 0
-        sum_predictions = 0
-        timer = Timer()
         # 训练集
+        sum_loss, sum_train_acc, sum_examples, sum_predictions = 0, 0, 0, 0
         for i, (X, y) in enumerate(train_iter):
-            timer.start()
-            l, acc = train_batch(net, opt, loss, X, y, device, i, grad_accum_steps, mixup_fn, scaler)
+            l, acc = train_batch(net, opt, loss_fn, X, y, device, i, grad_accum_steps, mixup_fn, scaler)
             sum_loss += l
             sum_train_acc += acc
             sum_examples += y.shape[0]
             sum_predictions += y.numel()
-            timer.stop()
             if (i + 1) % (num_batches // 5 + 1) == 0 or i == num_batches - 1:
-                train_loss = sum_loss / sum_examples
-                train_acc = sum_train_acc / sum_predictions
-                animator.add((ep - 1) + (i + 1) / num_batches, (train_loss, train_acc, None))
-                cur_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
+                l = sum_loss / sum_examples
+                acc = sum_train_acc / sum_predictions
+                animator.add((ep - 1) + (i + 1) / num_batches, (acc, None, l))
+                lr = opt.param_groups[0]['lr']  # lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else
                 print(
-                    f"{_time_()} - [{log}] epoch {ep:>3}, iter {i + 1:>4}, lr: {cur_lr:.2e}, loss: {train_loss:.6f}, "
-                    f"train accuracy: {train_acc:.6f}, {sum_examples / timer.sum():.1f} examples/sec"
+                    f"{_time_()} - [{log}] epoch {ep:>3}, iter {i + 1:>4}, lr: {lr:.2e}, loss: {l:.6f}, train accuracy: {acc:.6f}"
                 )
+        # 测试集
+        test_acc = evaluate(net, test_iter, device)
+        animator.add(ep, (None, test_acc, None))
+        eta_time = seconds_to_hms(timer.sum() / ep * (num_epochs - ep))
+        print(f"{_time_()} - [{log}] test accuracy: {test_acc:.6f}, eta: {eta_time}")
         # 更新学习率
         if lr_scheduler is not None:
-            lr_scheduler.step()
-        # 测试集
-        timer = Timer()
-        test_acc = evaluate(net, test_iter, device)
-        timer.stop()
-        animator.add(ep, (None, None, test_acc))
-        print(f"{_time_()} - [{log}] test accuracy: {test_acc:.6f}, {sum_examples / timer.sum():.1f} examples/sec")
+            if isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                lr_scheduler.step(test_acc)
+            else:
+                lr_scheduler.step()
+            animator_lr.add(ep, opt.param_groups[0]['lr'])  # lr_scheduler.get_last_lr()[0])
         # 保存最佳精度模型
         if test_acc > best_checkpoint:
             best_checkpoint = test_acc
@@ -216,7 +224,8 @@ def train_classification(
                 os.remove(last_checkpoint)
             last_checkpoint = f'./{log}_{ep}_{test_acc:.3f}.pth'
             torch.save(net.state_dict(), last_checkpoint)
-    print(f"{_time_()} - [{log}] Completed, best test accuracy: {best_checkpoint}")
+    print(f"{_time_()} - [{log}] Completed, best test accuracy: {best_checkpoint}, Time: {seconds_to_hms(timer.sum())}")
+    animator_lr.save(f"./animator_lr_{log}_{best_checkpoint:.3f}.jpg")
     animator.save(f"./animator_{log}_{best_checkpoint:.3f}.jpg")
     return best_checkpoint
 
@@ -268,17 +277,17 @@ def train_regression(
             if (i + 1) % (num_batches // 5 + 1) == 0 or i == num_batches - 1:
                 train_loss = sum_train_loss / sum_examples
                 animator.add((ep - 1) + (i + 1) / num_batches, (train_loss, None))
-                cur_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
+                lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
                 print(
-                    f"{_time_()} - [{log}] epoch {ep:>3}, iter {i + 1:>4}, lr: {cur_lr:.2e}, train loss: {train_loss:.6f}"
+                    f"{_time_()} - [{log}] epoch {ep:>3}, iter {i + 1:>4}, lr: {lr:.2e}, train loss: {train_loss:.6f}"
                 )
         if using_log_loss:
             train_loss = evaluate_loss(net, loss, train_iter, using_log_loss, device)
             test_loss = evaluate_loss(net, loss, test_iter, using_log_loss, device) if test_iter else -1
             animator.add(ep, (train_loss, test_loss))
-            cur_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
+            lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else opt.param_groups[0]['lr']
             print(
-                f"{_time_()} - [{log}] epoch {ep:>3}, lr: {cur_lr:.2e}, train loss: {train_loss:.6f}, test loss: {test_loss:.6f}"
+                f"{_time_()} - [{log}] epoch {ep:>3}, lr: {lr:.2e}, train loss: {train_loss:.6f}, test loss: {test_loss:.6f}"
             )
         else:
             test_loss = evaluate_loss(net, loss, test_iter, using_log_loss, device) if test_iter else -1
