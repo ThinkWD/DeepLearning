@@ -1,0 +1,7 @@
+*
+!*/
+!.gitignore
+
+# source code
+!_module_/**
+!*.py
