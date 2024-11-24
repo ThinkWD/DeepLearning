@@ -1,33 +1,36 @@
 import os
 import pandas
-import numpy as np
 from lx_module import dataset
 from mmengine.config import ConfigDict
-from mmengine.registry import RUNNERS
 from mmengine.runner import Runner, find_latest_checkpoint
 from mmengine.hooks import Hook
-from mmengine.utils import digit_version
-from mmengine.utils.dl_utils import TORCH_VERSION
-from mmengine.fileio import dump
+from mmengine.fileio import dump, load
 
 
 import copy
 from mmengine.dist import sync_random_seed
 
+EXP_INFO_FILE = 'kfold_exp.json'
+
 
 # '/home/lxx/mmpretrain/configs/resnet/resnet18_8xb32_in1k.py'
 
 
-def get_runtime(work_name='log'):
+def get_runtime(work_name='log', load_from=None, resume=False):
     return dict(
         # 指定随机种子, 用于复现实验, 默认不指定.
         randomness=dict(seed=None, deterministic=False),
+        # 初始化参数模型路径
+        load_from=load_from,
+        # 断点恢复训练 (设置为 True 自动从最新的权重文件恢复)
+        resume=resume,
         # 全局日志等级
         log_level='INFO',
         # 保存路径
         work_dir=f'./workspace/{work_name}',
         # 训练进程可视化 (保存到 Tensorboard 后端)
-        visualizer=dict(type='UniversalVisualizer', vis_backends=[dict(type='TensorboardVisBackend')]),
+        # visualizer=dict(type='UniversalVisualizer', vis_backends=[dict(type='TensorboardVisBackend')]),
+        visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend')]),
         # 设置默认钩子
         default_hooks=dict(
             # 打印日志的间隔 (iter)
@@ -92,7 +95,7 @@ def get_schedules(
 
 
 def get_dataset_classify_leaves(
-    target_size, batch_size, num_workers=4, save_path='./dataset/classify-leaves', first_time=False
+    target_size, batch_size, num_workers=4, save_path='/home/lxx/DeepLearning/dataset/classify-leaves', first_time=False
 ):
     if first_time:
         # 数据集预处理: 去除重复图片, 杜绝图片相同标签不同的情况
@@ -169,9 +172,7 @@ def get_dataset_classify_leaves(
 
 
 def get_model(use_mixup=False):
-    load_from = None  # 初始化参数模型路径
-    resume = False  # 断点恢复训练 (设置为 True 自动从最新的权重文件恢复)
-    # 是否
+    # 是否启用 mixup 和 cutmix
     train_cfg = dict()
     if use_mixup:
         train_cfg = dict(
@@ -195,6 +196,7 @@ def get_model(use_mixup=False):
         data_preprocessor=dict(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
         train_cfg=train_cfg,
     )
+    return dict(model=model)
 
 
 def train_single_fold(cfg, num_splits, fold, resume_ckpt=None):
@@ -245,7 +247,7 @@ def train_single_fold(cfg, num_splits, fold, resume_ckpt=None):
                 last_ckpt=last_ckpt,
                 kfold_split_seed=cfg.kfold_split_seed,
             )
-            dump(exp_info, os.path.join(root_dir, 'kfold_exp.json'))
+            dump(exp_info, os.path.join(root_dir, EXP_INFO_FILE))
 
     runner.register_hook(SaveInfoHook(), 'LOWEST')
     # start training
@@ -254,36 +256,32 @@ def train_single_fold(cfg, num_splits, fold, resume_ckpt=None):
 
 def main():
 
-    # load config
-    cfg = Config.fromfile(args.config)
-    print(cfg)
-    print('\n\n\n')
-    # merge cli arguments to config
-    cfg = merge_args(cfg, args)
+    num_splits = 5
+    resume = False
+
+    cfg = ConfigDict()
+    cfg.update(get_model())
+    cfg.update(get_runtime())
+    cfg.update(get_schedules(1e-3, 50, 'ReduceLROnPlateau', 4))
+    cfg.update(get_dataset_classify_leaves(224, 16))
+
     # set the unify random seed
     cfg.kfold_split_seed = sync_random_seed()
-    print(cfg)
-    exit()
 
-    # get_dataset_classify_leaves(1, 4, './dataset/classify-leaves', True)
-
-    # load config
-    cfg = Config.fromfile('/home/lxx/mmpretrain/configs/resnet/resnet18_8xb32_in1k.py')
-    print(cfg)
-
-    print(cfg)
-
-    # build the runner from config
-    if 'runner_type' not in cfg:
-        # build the default runner
-        runner = Runner.from_cfg(cfg)
+    # resume from the previous experiment
+    if resume:
+        experiment_info = load(os.path.join(cfg.work_dir, EXP_INFO_FILE))
+        resume_fold = experiment_info['fold']
+        cfg.kfold_split_seed = experiment_info['kfold_split_seed']
+        resume_ckpt = experiment_info.get('last_ckpt', None)
     else:
-        # build customized runner from the registry
-        # if 'runner_type' is set in the cfg
-        runner = RUNNERS.build(cfg)
+        resume_fold = 0
+        resume_ckpt = None
 
-    # start training
-    runner.train()
+    for fold in range(resume_fold, num_splits):
+        cfg_ = copy.deepcopy(cfg)
+        train_single_fold(cfg_, num_splits, fold, resume_ckpt)
+        resume_ckpt = None
 
 
 if __name__ == '__main__':
