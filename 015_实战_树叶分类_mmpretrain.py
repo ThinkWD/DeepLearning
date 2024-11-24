@@ -33,23 +33,16 @@ def get_runtime(work_name='log', load_from=None, resume=False):
         visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend')]),
         # 设置默认钩子
         default_hooks=dict(
-            # 打印日志的间隔 (iter)
-            logger=dict(type='LoggerHook', interval=100),
             # 保存权重的间隔 (epoch)
             checkpoint=dict(type='CheckpointHook', interval=1, max_keep_ckpts=1, save_best='auto'),
+            logger=dict(type='LoggerHook', interval=50),  # 打印日志的间隔 (iter)
             timer=dict(type='IterTimerHook'),  # 记录每次迭代的时间
             param_scheduler=dict(type='ParamSchedulerHook'),  # 启用学习率调度器
             sampler_seed=dict(type='DistSamplerSeedHook'),  # 在分布式环境中设置采样器种子
             visualization=dict(type='VisualizationHook', enable=False),  # 验证结果可视化，设置True以启用它。
         ),
-        # # 设置环境. 在修改这些参数之前, 确保你理解这些参数的含义!!!
-        # env_cfg=dict(
-        #     cudnn_benchmark=False,  # whether to enable cudnn benchmark
-        #     dist_cfg=dict(backend='nccl'),  # set distributed parameters
-        #     mp_cfg=dict(mp_start_method='fork', opencv_num_threads=0),  # set multi process parameters
-        # ),
-        # # defaults to use registries in mmpretrain
-        # default_scope='mmpretrain',
+        # 设置默认注册域 (没有此选项则无法加载 mmpretrain 中注册的类)
+        default_scope='mmpretrain',
         launcher='none',
     )
 
@@ -60,8 +53,8 @@ def get_schedules(
     # 学习率调度器
     if scheduler_type == 'CosineAnnealingLR':
         scheduler = dict(type='CosineAnnealingLR', by_epoch=True)  # , T_max=num_epochs
-    elif scheduler_type == 'ReduceLROnPlateau':
-        scheduler = dict(type='ReduceLROnPlateau', by_epoch=True, mode='max', factor=0.2, patience=4, verbose=True)
+    elif scheduler_type == 'ReduceOnPlateauLR':
+        scheduler = dict(type='ReduceOnPlateauLR', by_epoch=True, patience=4, factor=0.2, monitor='accuracy/top1')
     # 是否冻结第 0 层
     paramwise_cfg = dict()
     if freeze_param:
@@ -117,6 +110,7 @@ def get_dataset_classify_leaves(
     # 读取类别列表文件
     with open(os.path.join(save_path, 'classes.txt'), 'r', encoding='utf-8') as file:
         classes = [line.strip() for line in file]
+    print(f'num_classes: {len(classes)}')
     # 设置训练和测试 pipeline
     train_pipeline = [
         dict(type='LoadImageFromFile'),
@@ -171,7 +165,7 @@ def get_dataset_classify_leaves(
     )
 
 
-def get_model(use_mixup=False):
+def get_model(num_classes, use_mixup=False):
     # 是否启用 mixup 和 cutmix
     train_cfg = dict()
     if use_mixup:
@@ -188,7 +182,7 @@ def get_model(use_mixup=False):
         neck=dict(type='GlobalAveragePooling'),
         head=dict(
             type='LinearClsHead',
-            num_classes=1000,
+            num_classes=num_classes,
             in_channels=512,
             loss=dict(type='CrossEntropyLoss', loss_weight=1.0),
             topk=(1, 5),
@@ -260,10 +254,10 @@ def main():
     resume = False
 
     cfg = ConfigDict()
-    cfg.update(get_model())
+    cfg.update(get_model(176))
     cfg.update(get_runtime())
-    cfg.update(get_schedules(1e-3, 50, 'ReduceLROnPlateau', 4))
-    cfg.update(get_dataset_classify_leaves(224, 16))
+    cfg.update(get_schedules(1e-3, 50, 'ReduceOnPlateauLR'))
+    cfg.update(get_dataset_classify_leaves(224, 64))
 
     # set the unify random seed
     cfg.kfold_split_seed = sync_random_seed()
