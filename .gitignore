@@ -1,6 +1,7 @@
 *
 !*/
 !.gitignore
+!pyproject.toml
 
 # source code
 !_module_/**

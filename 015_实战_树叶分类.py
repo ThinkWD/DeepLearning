@@ -1,13 +1,14 @@
 import os
+
+import pandas
+import scipy
 import timm
 import torch
-import scipy
-import pandas
 import torchvision
-from tqdm import tqdm
-from lx_module import uitls
-from lx_module import dataset
 from timm.loss import SoftTargetCrossEntropy
+from tqdm import tqdm
+
+from lx_module import dataset, uitls
 
 
 def set_parameter_requires_grad(model, feature_extracting):
@@ -70,7 +71,7 @@ def eval_asst(net, data_path, csv_file, transforms, save_path, delay_vote=True):
     # predict
     with torch.no_grad():
         preds = []
-        for imgs, _ in tqdm(dataloader, leave=True, ncols=100, colour="CYAN"):
+        for imgs, _ in tqdm(dataloader, leave=True, ncols=100, colour='CYAN'):
             if isinstance(imgs, list):
                 imgs_size = len(imgs)
                 imgs = torch.cat([img.to(uitls.try_gpu()) for img in imgs], dim=0)  # 将列表合并为一个大的batch
@@ -107,7 +108,7 @@ def eval(K_flod, target_size, checkpoints_path, save_path):
         model_path = find_saved_model(checkpoints_path, logger)
         saved_path = os.path.join(save_path, f'submission_{logger}.csv')
         net.load_state_dict(torch.load(model_path))
-        print(f'{uitls._time_()} - Evaluate model: \'{logger}\'')
+        print(f"{uitls._time_()} - Evaluate model: '{logger}'")
         eval_asst(net, data_path, 'test.csv', transforms, saved_path)
         print(f'{uitls._time_()} - Done, save to: {saved_path}\n')
     # 收集全部识别结果
@@ -215,7 +216,7 @@ def train(K_flod, target_size):
 # Best Public Score: 0.97886
 # Best Private Score: 0.97840
 # Kaggle: https://www.kaggle.com/competitions/classify-leaves
-if __name__ == "__main__":
+if __name__ == '__main__':
     K_flod = 5  # [trick] K 折交叉验证
     target_size = 320  # [trick] 更大的网络输入尺寸
     train(K_flod, target_size)
