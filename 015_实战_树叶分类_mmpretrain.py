@@ -33,7 +33,7 @@ def get_runtime(config, resume=False):
             param_scheduler=dict(type='ParamSchedulerHook'),  # 启用学习率调度器
             checkpoint=dict(type='CheckpointHook', interval=1, max_keep_ckpts=1, save_best='auto'),
         ),
-        custom_hooks=[dict(type='EMAHook', ema_type='ExponentialMovingAverage')],  # 模型参数指数滑动平均
+        # custom_hooks=[dict(type='EMAHook', ema_type='ExponentialMovingAverage')],  # 模型参数指数滑动平均
         # 设置默认注册域 (没有此选项则无法加载 mmpretrain 中注册的类)
         default_scope='mmpretrain',
         launcher='none',
@@ -58,14 +58,15 @@ def get_schedules(config):
         patience = max(2, num_epochs // 10 - 1)  # factor=0.1,
         scheduler = dict(type='ReduceOnPlateauLR', monitor='accuracy/top1', rule='greater', patience=patience)
     # 是否冻结第 0 层
-    paramwise_cfg = dict()
+    paramwise_cfg = dict(norm_decay_mult=0.0)  # 防止BN层受到正则化衰减, 允许自由调整
     if freeze_param:
         paramwise_cfg = dict(
+            norm_decay_mult=0.0,  # 防止BN层受到正则化衰减, 允许自由调整
             custom_keys={
                 'backbone.layer0': dict(lr_mult=0, decay_mult=0),  # 设置骨干网络第 0 层的学习率和权重衰减为 0
                 'backbone': dict(lr_mult=1),  # 设置骨干网络的其余层和优化器保持一致
                 'head': dict(lr_mult=10),  # 设置头部网络的学习率为优化器中设置的 10 倍
-            }
+            },
         )
     cfg = dict(
         # train, val, test setting
@@ -118,8 +119,9 @@ def get_dataset_classify_leaves(config, save_path='/home/lxx/DeepLearning/datase
     train_pipeline = [
         dict(type='LoadImageFromFile'),
         dict(type='RandomResizedCrop', scale=target_size),
-        dict(type='RandomFlip', prob=[0.5, 0.5], direction=['horizontal', 'vertical']),
-        dict(type='ColorJitter', brightness=0.2, contrast=0.2, saturation=0.2, hue=0, backend='cv2'),
+        dict(type='RandomFlip', prob=[0.5], direction=['horizontal']),
+        # dict(type='RandomFlip', prob=[0.5, 0.5], direction=['horizontal', 'vertical']),
+        # dict(type='ColorJitter', brightness=0.2, contrast=0.2, saturation=0.2, hue=0, backend='cv2'),
         dict(type='PackInputs'),
     ]
     test_pipeline = [dict(type='LoadImageFromFile'), dict(type='Resize', scale=target_size), dict(type='PackInputs')]
@@ -206,14 +208,14 @@ def get_model_efficientnet_b4(custom_cfg, num_classes, data_preprocessor, train_
         dict(
             work_name=f'efficientnet_b4-{target_size}px',
             target_size=target_size,
-            batch_size=32,
-            grad_accum_steps=1,
+            batch_size=16,  # 这个模型的 batch_size 太小, 因此在 model 中冻结了所有BN层
+            grad_accum_steps=4,  # 梯度累积并不影响 BN 层, 是小 batch_size 在影响. 应用梯度累积时 batch_size 一般较小
             load_from='./checkpoints/efficientnet-b4_3rdparty-ra-noisystudent_in1k_20221103-16ba8a2d.pth',
         )
     )
     model = dict(
         type='ImageClassifier',
-        backbone=dict(type='EfficientNet', arch='b4'),
+        backbone=dict(type='EfficientNet', arch='b4', norm_cfg=dict(type='BN', requires_grad=False)),
         neck=dict(type='GlobalAveragePooling'),
         head=dict(type='LinearClsHead', num_classes=num_classes, in_channels=1792, loss=loss, topk=(1, 5)),
         train_cfg=train_cfg,
@@ -261,7 +263,7 @@ def get_model_convnext_v2_nano(custom_cfg, num_classes, data_preprocessor, train
         dict(
             work_name=f'convnext_v2_nano-{target_size}px',
             target_size=target_size,
-            batch_size=32,
+            batch_size=64,
             grad_accum_steps=1,
             load_from='./checkpoints/convnext-v2-nano_fcmae-in21k-pre_3rdparty_in1k-384px_20230104-f951ae87.pth',
         )
@@ -380,14 +382,14 @@ def train():
 
     for fold in range(resume_fold, num_splits * 4):
         # build train config
-        custom_cfg, cfg = get_model(num_splits, fold, True)
+        custom_cfg, cfg = get_model(num_splits, fold, False)
         cfg.update(get_schedules(custom_cfg))
         cfg.update(get_dataset_classify_leaves(custom_cfg))
         cfg.update(get_runtime(custom_cfg))
         # set the unify random seed
         cfg.kfold_split_seed = kfold_split_seed
         # train
-        train_single_fold(cfg, num_splits, fold, resume_ckpt)
+        train_single_fold(cfg, num_splits, fold % num_splits, resume_ckpt)
         resume_ckpt = None
 
 
