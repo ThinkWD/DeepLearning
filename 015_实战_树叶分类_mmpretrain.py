@@ -1,11 +1,14 @@
 import copy
 import os
 
+import cv2
 import pandas
+import torch
 from mmengine.config import ConfigDict
 from mmengine.dist import sync_random_seed
 from mmengine.fileio import dump, load
 from mmengine.hooks import Hook
+from mmengine.infer import BaseInferencer
 from mmengine.runner import Runner, find_latest_checkpoint
 
 from lx_module import dataset
@@ -32,6 +35,7 @@ def get_runtime(config, resume=False):
             logger=dict(type='LoggerHook', interval=50),  # 打印日志 间隔 (iter)
             param_scheduler=dict(type='ParamSchedulerHook'),  # 启用学习率调度器
             checkpoint=dict(type='CheckpointHook', interval=1, max_keep_ckpts=1, save_best='auto'),
+            visualization=dict(type='VisualizationHook', enable=False),
         ),
         # custom_hooks=[dict(type='EMAHook', ema_type='ExponentialMovingAverage')],  # 模型参数指数滑动平均
         # 设置默认注册域 (没有此选项则无法加载 mmpretrain 中注册的类)
@@ -72,7 +76,6 @@ def get_schedules(config):
         # train, val, test setting
         train_cfg=dict(by_epoch=True, max_epochs=num_epochs, val_interval=1),
         val_cfg=dict(),
-        test_cfg=dict(),
         # 优化器
         optim_wrapper=dict(
             optimizer=dict(type='AdamW', lr=learn_rate, weight_decay=1e-5),
@@ -141,29 +144,13 @@ def get_dataset_classify_leaves(config, save_path='/home/lxx/DeepLearning/datase
         persistent_workers=True,
         collate_fn=dict(type='default_collate'),
     )
-    val_dataloader = dict(
-        batch_size=batch_size,
-        num_workers=num_workers,
-        sampler=dict(type='DefaultSampler', shuffle=False),
-        dataset=dict(
-            type='CustomDataset',
-            data_root=save_path,  # `ann_flie` 和 `data_prefix` 共同的文件路径前缀
-            ann_file='dataset.txt',  # 相对于 `data_root` 的标注文件路径
-            classes=classes,  # 每个类别的名称
-            pipeline=test_pipeline,  # 处理数据集样本的一系列变换操作
-        ),
-        pin_memory=True,
-        persistent_workers=True,
-        collate_fn=dict(type='default_collate'),
-    )
-    val_evaluator = dict(type='Accuracy', topk=(1, 5))
-    return dict(
-        train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
-        val_evaluator=val_evaluator,
-        test_dataloader=val_dataloader,
-        test_evaluator=val_evaluator,
-    )
+    val_dataloader = copy.deepcopy(train_dataloader)
+    val_dataloader['dataset']['pipeline'] = test_pipeline
+    val_evaluator = [
+        dict(topk=(1, 5), type='Accuracy'),
+        dict(type='SingleLabelMetric', items=['precision', 'recall', 'f1-score']),
+    ]
+    return dict(train_dataloader=train_dataloader, val_dataloader=val_dataloader, val_evaluator=val_evaluator)
 
 
 # 86.21 - 21.23 - tinyvit-21m_in21k-distill-pre_3rdparty_in1k-384px
@@ -330,18 +317,18 @@ def train_single_fold(cfg, num_splits, fold, resume_ckpt=None):
             test_mode=test_mode,
         )
 
-    # 更新训练集
+    # 保留训练集的 pipeline, 然后将 dataset 更新为 KFoldDataset
     dataset = cfg.train_dataloader.dataset
     train_dataset = copy.deepcopy(dataset)
     cfg.train_dataloader.dataset = wrap_dataset(train_dataset, False)
-    # 更新测试集、验证集加载位置及 pipeline
+    # 保留测试集、验证集的 pipeline, 然后将 dataset 更新为 KFoldDataset
     if cfg.val_dataloader is not None:
         if 'pipeline' not in cfg.val_dataloader.dataset:
             raise ValueError('Cannot find `pipeline` in the val dataset. ')
         val_dataset = copy.deepcopy(dataset)
         val_dataset['pipeline'] = cfg.val_dataloader.dataset.pipeline
         cfg.val_dataloader.dataset = wrap_dataset(val_dataset, True)
-    if cfg.test_dataloader is not None:
+    if 'test_dataloader' in cfg and cfg.test_dataloader is not None:
         if 'pipeline' not in cfg.test_dataloader.dataset:
             raise ValueError('Cannot find `pipeline` in the test dataset. ')
         test_dataset = copy.deepcopy(dataset)
@@ -365,9 +352,8 @@ def train_single_fold(cfg, num_splits, fold, resume_ckpt=None):
 
 
 # 查看可视化曲线: tensorboard --logdir=<directory_name>
-def train():
+def train(num_splits: int = 5):
     resume = False
-    num_splits = 5
 
     # resume from the previous experiment
     if resume:
@@ -393,5 +379,73 @@ def train():
         resume_ckpt = None
 
 
+def find_best_checkpoint(path: str):
+    best_checkpoint = [
+        item.path
+        for item in os.scandir(path)
+        if item.is_file() and item.name.startswith('best_') and item.name.endswith('.pth')
+    ]
+    assert len(best_checkpoint) > 0, f'Failed to find the best model on {path}'
+    return best_checkpoint[0]
+
+
+class CustomInferencer(BaseInferencer):
+    def visualize(self, inputs=None, preds=None, show=None):
+        pass
+
+    def _init_pipeline(self, cfg):
+        from mmengine.dataset import Compose
+        from mmpretrain.datasets import remove_transform
+        from mmpretrain.registry import TRANSFORMS
+
+        def load_image(input_):
+            img = cv2.imread(input_)
+            if img is None:
+                raise ValueError(f'Failed to read image {input_}.')
+            return dict(img=img, img_shape=img.shape[:2], ori_shape=img.shape[:2])
+
+        # Image loading is finished in `self.preprocess`.
+        pipeline_cfg = cfg.val_dataloader.dataset.pipeline
+        pipeline_cfg = remove_transform(pipeline_cfg, 'LoadImageFromFile')
+        pipeline = Compose([TRANSFORMS.build(t) for t in pipeline_cfg])
+        pipeline = Compose([load_image, pipeline])
+        return pipeline
+
+    def postprocess(self, preds, visualization, return_datasamples=False):  # noqa: F811
+        if return_datasamples:
+            return preds
+        results = []
+        for data_sample in preds:
+            pred_scores = data_sample.pred_score
+            pred_score = float(torch.max(pred_scores).item())
+            pred_label = torch.argmax(pred_scores).item()
+            result = dict(label=pred_label, score=pred_score)
+            results.append(result)
+        return results
+
+
+def test(num_splits: int = 5):
+    from mmengine import init_default_scope
+
+    for fold in range(0, num_splits * 4):
+        # build train config
+        custom_cfg, cfg = get_model(num_splits, fold, False)
+        cfg.update(get_schedules(custom_cfg))
+        cfg.update(get_dataset_classify_leaves(custom_cfg))
+        cfg.update(get_runtime(custom_cfg))
+        # init_default_scope
+        init_default_scope(cfg.default_scope)
+        # get this fold best checkpoints
+        cfg.work_dir = os.path.join(cfg.work_dir, f'fold{fold}')
+        cfg.load_from = find_best_checkpoint(cfg.work_dir)
+        # build model and Inferencer
+        inferencer = CustomInferencer(model=cfg, weights=cfg.load_from)
+        image = '/home/lxx/DeepLearning/dataset/classify-leaves/images/0.jpg'
+        result = inferencer(image)
+        print(f'\n\n\n{result}\n\n\n')
+        exit()
+
+
 if __name__ == '__main__':
+    test()
     train()
