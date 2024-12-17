@@ -2,14 +2,17 @@ import copy
 import os
 
 import cv2
+import numpy as np
 import pandas
 import torch
+import torchvision
 from mmengine.config import ConfigDict
 from mmengine.dist import sync_random_seed
 from mmengine.fileio import dump, load
 from mmengine.hooks import Hook
 from mmengine.infer import BaseInferencer
 from mmengine.runner import Runner, find_latest_checkpoint
+from tqdm import tqdm
 
 from lx_module import dataset
 
@@ -127,7 +130,8 @@ def get_dataset_classify_leaves(config, save_path='/home/lxx/DeepLearning/datase
         # dict(type='ColorJitter', brightness=0.2, contrast=0.2, saturation=0.2, hue=0, backend='cv2'),
         dict(type='PackInputs'),
     ]
-    test_pipeline = [dict(type='LoadImageFromFile'), dict(type='Resize', scale=target_size), dict(type='PackInputs')]
+    # 验证时使用
+    val_pipeline = [dict(type='LoadImageFromFile'), dict(type='Resize', scale=target_size), dict(type='PackInputs')]
     # 训练数据设置
     train_dataloader = dict(
         batch_size=batch_size,
@@ -145,7 +149,7 @@ def get_dataset_classify_leaves(config, save_path='/home/lxx/DeepLearning/datase
         collate_fn=dict(type='default_collate'),
     )
     val_dataloader = copy.deepcopy(train_dataloader)
-    val_dataloader['dataset']['pipeline'] = test_pipeline
+    val_dataloader['dataset']['pipeline'] = val_pipeline
     val_evaluator = [
         dict(topk=(1, 5), type='Accuracy'),
         dict(type='SingleLabelMetric', items=['precision', 'recall', 'f1-score']),
@@ -390,12 +394,8 @@ def find_best_checkpoint(path: str):
 
 
 class CustomInferencer(BaseInferencer):
-    def visualize(self, inputs=None, preds=None, show=None):
-        pass
-
     def _init_pipeline(self, cfg):
         from mmengine.dataset import Compose
-        from mmpretrain.datasets import remove_transform
         from mmpretrain.registry import TRANSFORMS
 
         def load_image(input_):
@@ -404,12 +404,18 @@ class CustomInferencer(BaseInferencer):
                 raise ValueError(f'Failed to read image {input_}.')
             return dict(img=img, img_shape=img.shape[:2], ori_shape=img.shape[:2])
 
-        # Image loading is finished in `self.preprocess`.
-        pipeline_cfg = cfg.val_dataloader.dataset.pipeline
-        pipeline_cfg = remove_transform(pipeline_cfg, 'LoadImageFromFile')
-        pipeline = Compose([TRANSFORMS.build(t) for t in pipeline_cfg])
-        pipeline = Compose([load_image, pipeline])
+        if True:  # 使用 torchvision 的 pipeline
+            pipeline = [dict(type='PackInputs')]
+            pipeline = Compose([TRANSFORMS.build(t) for t in pipeline])
+        else:  # 使用配置文件中的 pipeline
+            pipe_cfg = cfg.val_dataloader.dataset.pipeline
+            assert pipe_cfg[0].type == 'LoadImageFromFile'
+            pipeline = Compose([TRANSFORMS.build(t) for t in pipe_cfg[1:]])
+            pipeline = Compose([load_image, pipeline])
         return pipeline
+
+    def visualize(self, inputs=None, preds=None, show=None):
+        pass
 
     def postprocess(self, preds, visualization, return_datasamples=False):  # noqa: F811
         if return_datasamples:
@@ -424,8 +430,29 @@ class CustomInferencer(BaseInferencer):
         return results
 
 
+# PIL 转 tensor (opencv 格式)
+def mmengine_to_tensor(pic):
+    img = torch.from_numpy(np.array(pic, copy=True))
+    img = img.permute((2, 0, 1)).contiguous()  # HWC to CHW
+    img = img.flip(0)  # RGB to BGR
+    # print(f'[load] shape: {list(img.shape)}, mean: {torch.mean(img, dim=(1, 2), dtype=float).tolist()}')
+    return img
+
+
 def test(num_splits: int = 5):
     from mmengine import init_default_scope
+
+    # dataset
+    target_size = 224
+    transforms = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.Lambda(lambda x: mmengine_to_tensor(x)),  # PIL 转 tensor (opencv 格式)
+            torchvision.transforms.Resize(round(target_size / 7 * 8)),  # 缩放到一个较大的尺寸
+            torchvision.transforms.TenCrop(target_size),  # 上下左右中心裁剪+翻转, 获得 10 张图片
+        ]
+    )
+    test_data = dataset.Custom_Image_Dataset('./dataset/classify-leaves', 'test.csv', transforms)
+    dataloader = torch.utils.data.DataLoader(test_data, 16, shuffle=False, num_workers=4)
 
     for fold in range(0, num_splits * 4):
         # build train config
@@ -439,11 +466,16 @@ def test(num_splits: int = 5):
         cfg.work_dir = os.path.join(cfg.work_dir, f'fold{fold}')
         cfg.load_from = find_best_checkpoint(cfg.work_dir)
         # build model and Inferencer
-        inferencer = CustomInferencer(model=cfg, weights=cfg.load_from)
-        image = '/home/lxx/DeepLearning/dataset/classify-leaves/images/0.jpg'
-        result = inferencer(image)
-        print(f'\n\n\n{result}\n\n\n')
-        exit()
+        inferencer = CustomInferencer(model=cfg, weights=cfg.load_from, show_progress=False)
+        # preds = []
+        for imgs, _ in tqdm(dataloader, leave=True, ncols=100, colour='CYAN'):
+            shape = tuple(imgs[0].shape[-2:])
+            if isinstance(imgs, list):
+                imgs = torch.cat(imgs, dim=0)
+            imgs = [dict(img=img, img_shape=shape, ori_shape=shape) for img in imgs]
+            y_hat = inferencer(imgs, batch_size=len(imgs))
+            print(f'\n\n{y_hat}\n\n')
+            exit()
 
 
 if __name__ == '__main__':
