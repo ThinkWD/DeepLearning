@@ -96,29 +96,29 @@ def get_schedules(config):
     return cfg
 
 
-def get_dataset_classify_leaves(config, save_path='/home/lxx/DeepLearning/dataset/classify-leaves', first_time=False):
+def get_dataset_classify_leaves(config, data_path='/home/lxx/DeepLearning/dataset/classify-leaves', first_time=False):
     target_size = config['target_size']
     batch_size = config['batch_size']
     num_workers = config['num_workers'] if 'num_workers' in config else 4
     if first_time:
         # 数据集预处理: 去除重复图片, 杜绝图片相同标签不同的情况
-        dataset.check_dataset(save_path, 'train.csv')
+        dataset.check_dataset(data_path, 'train.csv')
         # 数据集格式转换: 转为 CustomDataset 需要的格式
-        data_frame = pandas.read_csv(os.path.join(save_path, 'updated_train.csv'))  # 加载数据集
+        data_frame = pandas.read_csv(os.path.join(data_path, 'updated_train.csv'))  # 加载数据集
         image_data = data_frame.iloc[:, 0]
         label_data = data_frame.iloc[:, 1]
         # 获取类别列表并按出现次数排序, 然后保存到 txt
         classes = label_data.value_counts().index.tolist()
-        with open(os.path.join(save_path, 'classes.txt'), 'w', encoding='utf-8') as file:
+        with open(os.path.join(data_path, 'classes.txt'), 'w', encoding='utf-8') as file:
             for cls in classes:
                 file.write(f'{cls}\n')
         # 将 CSV 中的文本标签转换为标签序号, 然后按 mmpretrain 的要求保存到 txt
         label_data = label_data.map({label: idx for idx, label in enumerate(classes)})
-        with open(os.path.join(save_path, 'dataset.txt'), 'w', encoding='utf-8') as file:
+        with open(os.path.join(data_path, 'dataset.txt'), 'w', encoding='utf-8') as file:
             for img, lbl in zip(image_data, label_data):
                 file.write(f'{img} {lbl}\n')
     # 读取类别列表文件
-    with open(os.path.join(save_path, 'classes.txt'), encoding='utf-8') as file:
+    with open(os.path.join(data_path, 'classes.txt'), encoding='utf-8') as file:
         classes = [line.strip() for line in file]
     print(f'num_classes: {len(classes)}')
     # 设置训练和测试 pipeline
@@ -139,7 +139,7 @@ def get_dataset_classify_leaves(config, save_path='/home/lxx/DeepLearning/datase
         sampler=dict(type='DefaultSampler', shuffle=True),
         dataset=dict(
             type='CustomDataset',
-            data_root=save_path,  # `ann_flie` 和 `data_prefix` 共同的文件路径前缀
+            data_root=data_path,  # `ann_flie` 和 `data_prefix` 共同的文件路径前缀
             ann_file='dataset.txt',  # 相对于 `data_root` 的标注文件路径
             classes=classes,  # 每个类别的名称
             pipeline=train_pipeline,  # 处理数据集样本的一系列变换操作
@@ -420,28 +420,90 @@ class CustomInferencer(BaseInferencer):
     def postprocess(self, preds, visualization, return_datasamples=False):  # noqa: F811
         if return_datasamples:
             return preds
-        results = []
+        result = []
         for data_sample in preds:
-            pred_scores = data_sample.pred_score
-            pred_score = float(torch.max(pred_scores).item())
-            pred_label = torch.argmax(pred_scores).item()
-            result = dict(label=pred_label, score=pred_score)
-            results.append(result)
-        return results
+            label = torch.argmax(data_sample.pred_score).item()
+            result.append(label)
+        return result
 
 
 # PIL 转 tensor (opencv 格式)
-def mmengine_to_tensor(pic):
-    img = torch.from_numpy(np.array(pic, copy=True))
+def mmengine_to_tensor(img):
+    img = torch.from_numpy(np.array(img, copy=True))
     img = img.permute((2, 0, 1)).contiguous()  # HWC to CHW
     img = img.flip(0)  # RGB to BGR
     # print(f'[load] shape: {list(img.shape)}, mean: {torch.mean(img, dim=(1, 2), dtype=float).tolist()}')
     return img
 
 
+# tensor 转 mmengine 推理需要的格式
+def tensor_to_mmegine(imgs):
+    shape = tuple(imgs[0].shape[-2:])  # imgs 是一个 batch 的数据
+    if isinstance(imgs, list):
+        imgs = torch.cat(imgs, dim=0)
+    return [dict(img=img, img_shape=shape, ori_shape=shape) for img in imgs]
+
+
+# 投票刷精度
+def assign_votes(datasamples, crop_size, topk=10):
+    assert topk > 0
+    datalength = len(datasamples)
+    assert datalength % crop_size == 0
+    num_image = datalength // crop_size
+    labels = torch.full((num_image, topk * crop_size), -1, dtype=int, device=datasamples[0].pred_score.device)
+    threshold = 1 - 0.5 / topk
+    for idx in range(datalength):
+        score, label = torch.topk(datasamples[idx].pred_score, topk)
+        row = idx % num_image
+        col = idx // num_image * topk
+        if score[0] > threshold:
+            labels[row, col : col + topk] = label[0]
+        else:
+            index = col
+            total_score = score.sum()
+            for j in range(1, topk):
+                count = round(topk * (score[j] / total_score).item())
+                if count == 0:
+                    break
+                labels[row, index : index + count] = label[j]
+                index += count
+            labels[row, index : col + topk] = label[0]
+    return labels.cpu().numpy().tolist()
+
+
+def save_csv_preds(images, preds, save_path):
+    columns = [f'{i}' for i in range(len(preds[0]))] if isinstance(preds[0], list) else ['label']
+    labels_df = pandas.DataFrame(preds, columns=columns, dtype=int)
+    submission = pandas.concat([images, labels_df], axis=1)
+    submission.to_csv(save_path, index=False)
+    print(f'Done, save to: {save_path}\n')
+
+
+def collect_submission(csv_dir, num2label, images):
+    csv_files = [item.path for item in os.scandir(csv_dir) if item.is_file() and item.name.endswith('.csv')]
+    result = pandas.DataFrame()
+    for idx, file in enumerate(csv_files):
+        df = pandas.read_csv(file)
+        df_labels = df[df.columns[1:]].rename(columns=lambda x: f'l_{idx}_{x}')
+        result = pandas.concat([result, df_labels], axis=1)
+    result = result.mode(axis=1, numeric_only=True)[0].astype(int)  # 对多个结果取众数 (存在多个众数时取第一个)
+    result = result.map(num2label)  # 将数字标签转为文本标签
+    submission = pandas.DataFrame({'image': images, 'label': result})
+    save_path = os.path.join(csv_dir, 'final_predictions.csv')
+    submission.to_csv(save_path, index=False)
+    print(f"The final result has been saved to '{save_path}'")
+
+
 def test(num_splits: int = 5):
     from mmengine import init_default_scope
 
+    # dataset path
+    data_path = './dataset/classify-leaves'
+    save_dir_one = './workspace/submission_topk_one'
+    save_dir_ten = './workspace/submission_topk_ten'
+    os.makedirs(save_dir_one, exist_ok=True)
+    os.makedirs(save_dir_ten, exist_ok=True)
+    test_images = pandas.read_csv(os.path.join(data_path, 'test.csv'))['image']
     # dataset
     target_size = 224
     transforms = torchvision.transforms.Compose(
@@ -451,12 +513,14 @@ def test(num_splits: int = 5):
             torchvision.transforms.TenCrop(target_size),  # 上下左右中心裁剪+翻转, 获得 10 张图片
         ]
     )
-    test_data = dataset.Custom_Image_Dataset('./dataset/classify-leaves', 'test.csv', transforms)
+    test_data = dataset.Custom_Image_Dataset(data_path, 'test.csv', transforms)
     dataloader = torch.utils.data.DataLoader(test_data, 16, shuffle=False, num_workers=4)
-
-    for fold in range(0, num_splits * 4):
+    # 调用所有模型生成识别结果投票
+    for fold in range(num_splits * 4):
         # build train config
         custom_cfg, cfg = get_model(num_splits, fold, False)
+        fold = fold % num_splits
+        print(f"==================== {custom_cfg['work_name']}-fold{fold} ====================")
         cfg.update(get_schedules(custom_cfg))
         cfg.update(get_dataset_classify_leaves(custom_cfg))
         cfg.update(get_runtime(custom_cfg))
@@ -466,18 +530,24 @@ def test(num_splits: int = 5):
         cfg.work_dir = os.path.join(cfg.work_dir, f'fold{fold}')
         cfg.load_from = find_best_checkpoint(cfg.work_dir)
         # build model and Inferencer
+        topk_one = []
+        topk_ten = []
         inferencer = CustomInferencer(model=cfg, weights=cfg.load_from, show_progress=False)
-        # preds = []
         for imgs, _ in tqdm(dataloader, leave=True, ncols=100, colour='CYAN'):
-            shape = tuple(imgs[0].shape[-2:])
-            if isinstance(imgs, list):
-                imgs = torch.cat(imgs, dim=0)
-            imgs = [dict(img=img, img_shape=shape, ori_shape=shape) for img in imgs]
-            y_hat = inferencer(imgs, batch_size=len(imgs))
-            print(f'\n\n{y_hat}\n\n')
-            exit()
+            datasamples = inferencer(tensor_to_mmegine(imgs), batch_size=16, return_datasamples=True)
+            topk_one.extend(assign_votes(datasamples, len(imgs) if isinstance(imgs, list) else 1, 1))
+            topk_ten.extend(assign_votes(datasamples, len(imgs) if isinstance(imgs, list) else 1, 10))
+        # save csv
+        save_csv_preds(test_images, topk_one, os.path.join(save_dir_one, f"{custom_cfg['work_name']}-fold{fold}.csv"))
+        save_csv_preds(test_images, topk_ten, os.path.join(save_dir_ten, f"{custom_cfg['work_name']}-fold{fold}.csv"))
+    # 收集投票并生成最终结果
+    print('==================== final_predictions ====================')
+    with open(os.path.join(data_path, 'classes.txt'), encoding='utf-8') as file:
+        num2label = {idx: line.strip() for idx, line in enumerate(file)}
+    collect_submission(save_dir_one, num2label, test_images)
+    collect_submission(save_dir_ten, num2label, test_images)
 
 
 if __name__ == '__main__':
     test()
-    train()
+    # train()
